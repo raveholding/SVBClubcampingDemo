@@ -2,6 +2,8 @@
 
 Demo funcional e interactiva de un sistema integral para clubes de camping: predio, reservas y estadías, gastronomía, cargos cruzados, subalquileres y contabilidad. Todo corre en el navegador desde un único archivo `index.html`, sin backend ni instalación. **Todos los datos son ficticios.**
 
+**Demo en línea:** https://raveholding.github.io/SVBClubcampingDemo/
+
 ## Cómo usarla
 
 1. Descargá `index.html` (o cloná el repo).
