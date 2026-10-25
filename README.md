@@ -1,6 +1,6 @@
 # Sistema VB · Demo de gestión de clubes de camping
 
-Demo funcional e interactiva de un sistema integral para clubes de camping: predio, reservas y estadías, gastronomía, cargos cruzados, subalquileres y contabilidad. Todo corre en el navegador desde un único archivo `index.html`, sin backend ni instalación. **Todos los datos son ficticios.**
+Demo funcional e interactiva de un sistema integral para clubes de camping: predio, reservas y estadías, gastronomía, pileta y canchas, cargos cruzados, subalquileres y contabilidad. Todo corre en el navegador desde un único archivo `index.html`, sin backend ni instalación. **Todos los datos son ficticios.**
 
 **Demo en línea:** https://raveholding.github.io/SVBClubcampingDemo/
 
@@ -19,12 +19,13 @@ Los cambios se guardan en `localStorage`. Si el navegador lo bloquea (por ejempl
 2. **Mapa gastronómico** → tocá una mesa libre → *Abrir cuenta* asociada a P04 → agregá 2 cervezas y 1 hamburguesa → *Imputar consumo a parcela*.
 3. **Mapa del predio** → P04 → **Ejecutar Check-Out y Cierre de Estancia** → revisá cargos, pagos, saldo y asiento previsto → confirmá → comprobante.
 4. Mirá cómo cambian el **Dashboard**, **Caja y contabilidad** (libro diario y controles de integridad) y **Reportes**.
-5. Probá P02: su check-out queda bloqueado porque tiene un ticket abierto en BAR-M02.
-6. **Configuración y pruebas → Pruebas funcionales** ejecuta las 15 pruebas obligatorias sobre una copia aislada de los datos.
+5. **Pileta y canchas** → tocá la pileta para vender una entrada (individual o imputada a una parcela) o alquilarla por turno; en el mapa elegí fútbol 5, fútbol 11 o pádel, reservá un horario con seña y cobralo (el anticipo se aplica solo). Mirá la agenda del día y los controles en Caja.
+6. Probá P02: su check-out queda bloqueado porque tiene un ticket abierto en BAR-M02.
+7. **Configuración y pruebas → Pruebas funcionales** ejecuta las 23 pruebas (15 del sistema base + 8 de pileta y canchas) sobre una copia aislada de los datos.
 
 ## Módulos
 
-Dashboard · Socios y clientes · Mapa del predio (SVG) · Reservas y estadías · Mapa gastronómico (14 unidades) · Consumos y cuentas (tickets, cargos cruzados, pagos directos, inventario) · Subalquileres y propietarios (liquidación 70/30 configurable) · Caja y contabilidad (libro diario, sumas y saldos, tesorería, política contable) · Reportes · Configuración (tarifas, temporada alta, datos, pruebas).
+Dashboard · Socios y clientes · Mapa del predio (SVG) · Reservas y estadías · Mapa gastronómico (14 unidades) · Pileta y canchas (entrada, alquiler por turno, fútbol 5, fútbol 11 y pádel, con señas, aforo, recargo nocturno y descuento de socio) · Consumos y cuentas (tickets, cargos cruzados, pagos directos, inventario) · Subalquileres y propietarios (liquidación 70/30 configurable) · Caja y contabilidad (libro diario, sumas y saldos, tesorería, política contable) · Reportes · Configuración (tarifas, temporada alta, datos, pruebas).
 
 ## Reglas destacadas
 

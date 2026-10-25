@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Club de Camping · Sistema VB (Demo)</title>
-<meta name="description" content="Demo funcional del Sistema Integral de Gestión de Clubes de Camping: predio, estadías, gastronomía, subalquileres y contabilidad. Datos ficticios.">
+<meta name="description" content="Demo funcional del Sistema Integral de Gestión de Clubes de Camping: predio, estadías, gastronomía, pileta y canchas, subalquileres y contabilidad. Datos ficticios.">
 <meta name="referrer" content="no-referrer">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -194,6 +194,26 @@ dialog::backdrop{background:rgba(3,8,5,.7);backdrop-filter:blur(3px)}
 .voucher h4{font-size:16px;margin-bottom:4px}
 .voucher table td,.voucher table th{border-color:#ddd;color:#1a1f1c}
 .voucher .mut{color:#6a726d}
+/* Pileta y canchas */
+.halo{fill:none;pointer-events:none;transition:filter .15s}
+.unit:hover .halo,.unit:focus .halo{filter:brightness(1.35)}
+.mt-s{margin-top:4px}
+.list .it[data-a]{cursor:pointer;border-radius:8px;padding-left:6px;padding-right:6px}
+.list .it[data-a]:hover{background:var(--panel2)}
+table.agenda{table-layout:fixed;min-width:620px}
+table.agenda th{text-align:center}
+table.agenda th:first-child{width:72px}
+table.agenda td.hr0{color:var(--mut);font-variant-numeric:tabular-nums;font-weight:600;width:72px}
+table.agenda td.slot{padding:6px 8px;border:1px solid var(--line);vertical-align:top;font-size:12.5px;height:48px;overflow:hidden}
+table.agenda td.slot.free{background:rgba(63,185,107,.06)}
+table.agenda td.slot.reservada{background:rgba(232,185,49,.14);cursor:pointer}
+table.agenda td.slot.cobrada{background:rgba(95,207,138,.15);cursor:pointer}
+table.agenda td.slot.imputada{background:rgba(106,174,240,.15);cursor:pointer}
+table.agenda td.slot.reservada:hover,table.agenda td.slot.cobrada:hover,table.agenda td.slot.imputada:hover{filter:brightness(1.25)}
+table.agenda td.slot.past{color:var(--mut2);background:rgba(255,255,255,.015);text-align:center}
+table.agenda td.slot.mant{background:rgba(124,133,128,.15);color:var(--mut);text-align:center}
+.slotbtn{width:100%;background:transparent;border:1px dashed rgba(95,207,138,.45);color:var(--ok);border-radius:8px;padding:5px 6px;cursor:pointer;font-size:12.5px}
+.slotbtn:hover{background:rgba(95,207,138,.12)}
 /* Test results */
 .tres td:first-child{width:36px;color:var(--mut)}
 /* Responsive */
@@ -241,6 +261,7 @@ dialog::backdrop{background:rgba(3,8,5,.7);backdrop-filter:blur(3px)}
       <button class="burger" id="burger" type="button" aria-label="Abrir menú">☰</button>
       <div class="ttl"><h1 id="title">Dashboard</h1><div class="club" id="clubName"></div></div>
       <button class="btn ghost sm hide-s" type="button" data-a="nuevaReservaGlobal">+ Reserva</button>
+      <button class="btn ghost sm hide-s" type="button" data-a="nuevoUsoGlobal">+ Pileta / cancha</button>
       <div class="datebox"><b id="today"></b><span class="hide-s" id="todayLong"></span></div>
     </header>
     <div id="banners"></div>
@@ -256,7 +277,7 @@ dialog::backdrop{background:rgba(3,8,5,.7);backdrop-filter:blur(3px)}
    1. CONFIGURACIÓN Y CONSTANTES
    ===================================================================== */
 const APP = {
-  schema: 4,                       // versión del esquema persistido
+  schema: 5,                       // versión del esquema persistido (5 = pileta y canchas)
   storageKey: 'svb_camping_demo',  // clave en localStorage
   toleranciaCentavos: 0,           // tolerancia de redondeo admitida en asientos (0 = exacto)
   diasAvisoReserva: 7,             // una reserva se muestra amarilla si empieza dentro de N días
@@ -273,7 +294,10 @@ const CUENTAS = {
   ANT:     { cod: '2.1.02', nombre: 'Anticipos de clientes', tipo: 'Pasivo' },
   ING_EST: { cod: '4.1.01', nombre: 'Ingresos por estadía', tipo: 'Resultado +' },
   ING_GAS: { cod: '4.1.02', nombre: 'Ingresos por gastronomía', tipo: 'Resultado +' },
-  DESC:    { cod: '4.9.01', nombre: 'Descuentos otorgados', tipo: 'Resultado −' }
+  ING_PIL: { cod: '4.1.03', nombre: 'Ingresos por pileta', tipo: 'Resultado +' },
+  ING_CAN: { cod: '4.1.04', nombre: 'Ingresos por canchas', tipo: 'Resultado +' },
+  DESC:    { cod: '4.9.01', nombre: 'Descuentos otorgados', tipo: 'Resultado −' },
+  DESC_INS: { cod: '4.9.02', nombre: 'Descuentos de pileta y canchas', tipo: 'Resultado −' }
 };
 const MEDIOS = {
   efectivo:      { nombre: 'Efectivo', cuenta: 'CAJA' },
@@ -286,6 +310,10 @@ const CATEGORIAS_PRODUCTO = ['Bebidas', 'Cocina', 'Cafetería', 'Tragos'];
 const ESTADO_UNIDAD_TXT = { libre: 'Libre', ocupada: 'Ocupada', reservada: 'Reservada', mantenimiento: 'Mantenimiento' };
 const ESTADO_EST_TXT = { reservada: 'Reservada', activa: 'Activa (alojado)', cerrada: 'Cerrada', cancelada: 'Cancelada' };
 const COLORES = { libre: '#3fb96b', ocupada: '#e05a4f', reservada: '#e8b931', mantenimiento: '#7c8580' };
+/* Pileta y canchas */
+const USO_ESTADO_TXT = { reservada: 'Reservada', cobrada: 'Cobrada', imputada: 'Cargada a parcela', cancelada: 'Cancelada' };
+const USO_TIPO_TXT = { entrada: 'Entrada individual', alquiler: 'Alquiler de pileta', cancha: 'Alquiler de cancha' };
+const INST_ESTADO_TXT = { libre: 'Disponible', ocupada: 'En uso ahora', reservada: 'Con reservas hoy', mantenimiento: 'Mantenimiento' };
 
 class ErrNegocio extends Error { constructor(msg, code) { super(msg); this.name = 'ErrNegocio'; this.code = code || 'NEGOCIO'; } }
 
@@ -326,6 +354,10 @@ const fFechaHora = s => s ? `${fFecha(s.slice(0, 10))} ${s.slice(11, 16)}` : '�
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const fLarga = s => { const d = new Date(utc(s)); return `${DIAS[d.getUTCDay()]} ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`; };
+/* Horas "HH:MM" ⇄ minutos (24:00 = 1440 es válido como fin de jornada) */
+const hm = s => (+s.slice(0, 2)) * 60 + (+s.slice(3, 5));
+const deMin = m => `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
+const esHora = s => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
 /* ---------- Utilidades: texto seguro ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -338,11 +370,43 @@ const clon = o => JSON.parse(JSON.stringify(o));
    negocio que usa la interfaz, con un reloj simulado. Así los asientos,
    saldos, stock y liquidaciones iniciales son coherentes por construcción.
    ===================================================================== */
+/** Tarifas y parámetros de la pileta y las canchas (importes en centavos). */
+function instConfigInicial() {
+  return {
+    descSocio: 20,            // % de descuento a socios activos con cuotas al día
+    senaPct: 30,              // % de seña sugerido para reservas
+    apertura: '09:00', cierre: '23:00',
+    nocturnoDesde: '19:00', recargoNocturno: 25,   // iluminación de canchas
+    pileta: {
+      entradaAdulto: 800000, entradaMenor: 400000, edadMenor: 12, aforo: 120,
+      alquilerTurno: 12000000, personasIncl: 30, extraPersona: 300000, aforoAlquiler: 60,
+      recargoAlta: 20,        // % sobre pileta en temporada alta
+      turnos: [
+        { id: 'MA', nombre: 'Turno mañana', desde: '09:00', hasta: '13:00' },
+        { id: 'TA', nombre: 'Turno tarde', desde: '14:00', hasta: '18:00' }
+      ]
+    },
+    canchas: {
+      F5:  { nombre: 'Fútbol 5',  precioHora: 3500000, capacidad: 10, maxHoras: 3 },
+      F11: { nombre: 'Fútbol 11', precioHora: 9000000, capacidad: 22, maxHoras: 2 },
+      PAD: { nombre: 'Pádel',     precioHora: 2800000, capacidad: 4,  maxHoras: 3 }
+    }
+  };
+}
+function instalacionesBase() {
+  return [
+    { id: 'PIL', nombre: 'Pileta', clase: 'pileta', mantenimiento: false, motivoMant: '' },
+    { id: 'F11', nombre: 'Cancha de fútbol 11', clase: 'F11', mantenimiento: false, motivoMant: '' },
+    { id: 'F5', nombre: 'Cancha de fútbol 5', clase: 'F5', mantenimiento: false, motivoMant: '' },
+    { id: 'PAD', nombre: 'Cancha de pádel', clase: 'PAD', mantenimiento: false, motivoMant: '' }
+  ];
+}
 function configInicial(h) {
   const y = +h.slice(0, 4), m = +h.slice(5, 7);
   const anioVerano = m >= 3 ? y : y - 1;
   return {
     club: 'Club de Camping Los Alisos',
+    inst: instConfigInicial(),
     tipos: {
       carpa:     { nombre: 'Carpa',            base: 1800000, persIncl: 2, vehIncl: 1 },
       casilla:   { nombre: 'Casilla rodante',  base: 2400000, persIncl: 2, vehIncl: 1 },
@@ -413,9 +477,10 @@ function estadoVacio(h) {
     unidades: b.unidades,
     productos: b.productos,
     mesas: b.mesas,
-    estadias: [], pagos: [], cargos: [], tickets: [], liquidaciones: [], asientos: [], log: [],
+    instalaciones: instalacionesBase(),
+    estadias: [], pagos: [], cargos: [], tickets: [], liquidaciones: [], asientos: [], usos: [], log: [],
     opsHechas: {},
-    seq: { cli: 6, est: 0, pag: 0, car: 0, tic: 0, lin: 0, as: 0, liq: 0, op: 0, prod: 9, prop: 1 }
+    seq: { cli: 6, est: 0, pag: 0, car: 0, tic: 0, lin: 0, as: 0, liq: 0, op: 0, prod: 9, prop: 1, uso: 0 }
   };
 }
 /** Construye el estado inicial de demostración ejecutando operaciones reales. */
@@ -434,6 +499,9 @@ function construirSeed() {
     const th = abrirCuenta('REST-M01', { comensales: 4, estadiaId: eh.id });
     agregarProducto(th.id, 'PR-002', 4); agregarProducto(th.id, 'PR-003', 2); agregarProducto(th.id, 'PR-001', 2);
     imputarTicket(th.id, eh.id);
+    // --- Entrada de pileta de la familia, cargada a la cuenta de la cabaña (socia: con descuento) ---
+    at(-17, '15:20');
+    crearUso({ inst: 'PIL', tipo: 'entrada', fecha: sumarDias(H, -17), clienteId: 'C-003', adultos: 2, menores: 2, cobro: { modo: 'imputar', estadiaId: eh.id } });
     at(-16, '10:30');
     const rh = resumenEstadia(eh);
     cerrarEstadia(eh.id, { cobro: { importe: rh.saldo, medio: 'efectivo' }, mantenimiento: false });
@@ -464,6 +532,38 @@ function construirSeed() {
     agregarProducto(t3.id, 'PR-007', 1); agregarProducto(t3.id, 'PR-005', 2);
     reservarMesa('REST-M02', { nombre: 'Familia Gómez', hora: '21:30', comensales: 4 });
     reservarMesa('BARRA-B03', { nombre: 'Reserva barra', hora: '20:00', comensales: 1 });
+    // --- Pileta y canchas: historial cobrado, ventas de hoy y reservas próximas ---
+    at(-10, '12:00');
+    const u1 = crearUso({ inst: 'F5', fecha: sumarDias(H, -9), desde: '19:00', horas: 2, clienteId: 'C-006', notas: 'Partido de amigos (ficticio)', sena: { importe: 2500000, medio: 'transferencia' } });
+    at(-9, '21:10');
+    cobrarUso(u1.id, { modo: 'pago', medio: 'efectivo' });
+    at(-8, '10:00');
+    const u3 = crearUso({ inst: 'PIL', tipo: 'alquiler', fecha: sumarDias(H, -4), turno: 'TA', personas: 35, clienteId: 'C-005', notas: 'Cumpleaños familiar (ficticio)', sena: { importe: 3000000, medio: 'efectivo' } });
+    at(-7, '10:00');
+    const u2 = crearUso({ inst: 'PAD', fecha: sumarDias(H, -6), desde: '20:00', horas: 1, clienteId: 'C-002' });
+    at(-6, '21:15');
+    cobrarUso(u2.id, { modo: 'pago', medio: 'transferencia' });
+    at(-4, '18:10');
+    cobrarUso(u3.id, { modo: 'pago', medio: 'transferencia' });
+    at(-3, '09:00');
+    const u4 = crearUso({ inst: 'F11', fecha: sumarDias(H, -2), desde: '17:00', horas: 2, clienteId: 'C-004', sena: { importe: 5000000, medio: 'transferencia' } });
+    at(-3, '16:30');
+    crearUso({ inst: 'PIL', tipo: 'entrada', fecha: sumarDias(H, -3), nombre: 'Visitantes del día', adultos: 4, menores: 2, cobro: { modo: 'pago', medio: 'efectivo' } });
+    at(-2, '19:20');
+    cobrarUso(u4.id, { modo: 'pago', medio: 'efectivo' });
+    at(-1, '17:40');
+    crearUso({ inst: 'PIL', tipo: 'entrada', fecha: sumarDias(H, -1), nombre: 'Visitantes del día', adultos: 6, menores: 3, cobro: { modo: 'pago', medio: 'efectivo' } });
+    at(-1, '18:30');
+    crearUso({ inst: 'F5', fecha: H, desde: '20:00', horas: 2, clienteId: 'C-006', sena: { importe: 2625000, medio: 'transferencia' } });
+    crearUso({ inst: 'PAD', fecha: H, desde: '21:00', horas: 1, clienteId: 'C-001' });
+    at(-1, '19:05');
+    crearUso({ inst: 'PIL', tipo: 'alquiler', fecha: sumarDias(H, 1), turno: 'TA', personas: 45, clienteId: 'C-002', sena: { importe: 5000000, medio: 'efectivo' } });
+    crearUso({ inst: 'F11', fecha: sumarDias(H, 1), desde: '17:00', horas: 2, clienteId: 'C-004', sena: { importe: 5400000, medio: 'transferencia' } });
+    crearUso({ inst: 'PAD', fecha: sumarDias(H, 2), desde: '19:00', horas: 1, clienteId: 'C-006' });
+    at(0, '09:15');
+    crearUso({ inst: 'PIL', tipo: 'entrada', fecha: H, nombre: 'Visitantes del día', adultos: 5, menores: 3, cobro: { modo: 'pago', medio: 'efectivo' } });
+    at(0, '09:40');
+    crearUso({ inst: 'PIL', tipo: 'entrada', fecha: H, clienteId: 'C-001', adultos: 2, menores: 1, cobro: { modo: 'imputar', estadiaId: e1.id } });
     const seed = S;
     return seed;
   } finally {
@@ -477,9 +577,9 @@ function construirSeed() {
 let S = null;          // estado único compartido por todos los módulos
 let ORIGEN = 'usuario'; // 'demo' para datos iniciales, 'usuario' para movimientos posteriores
 const UI = {
-  route: 'dashboard', selUnidad: 'P01', selMesa: 'BAR-M02',
-  tabConsumos: 'tickets', tabCaja: 'diario', tabReportes: 'estadias', tabConfig: 'tarifas',
-  f: { cliQ: '', cliTipo: 'todos', estEstado: 'vigentes', estQ: '', asDesde: '', asHasta: '', asCuenta: '', asQ: '', asOrigen: '', repDesde: '', repHasta: '', repArea: '', repEstado: 'todas', carQ: '' },
+  route: 'dashboard', selUnidad: 'P01', selMesa: 'BAR-M02', selInst: 'PIL',
+  tabConsumos: 'tickets', tabCaja: 'diario', tabReportes: 'estadias', tabConfig: 'tarifas', tabDep: 'mapa',
+  f: { cliQ: '', cliTipo: 'todos', estEstado: 'vigentes', estQ: '', asDesde: '', asHasta: '', asCuenta: '', asQ: '', asOrigen: '', repDesde: '', repHasta: '', repArea: '', repEstado: 'todas', carQ: '', depFecha: '', depQ: '', depInst: '', depEstado: '', repInst: '' },
   tests: null, busy: false
 };
 
@@ -492,12 +592,24 @@ function probarStorage() {
   catch (e) { return false; }
 }
 function serializar(estado) { return JSON.stringify({ schema: APP.schema, guardado: ahora(), data: estado }); }
+/** Migra datos guardados con el esquema 4 (sin pileta ni canchas) al esquema 5 sin perder movimientos. */
+function migrar4a5(d) {
+  if (d && typeof d === 'object') {
+    if (d.config && !d.config.inst) { d.config.inst = instConfigInicial(); d.config.inst.descSocio = Number(d.config.descSocio) >= 0 ? d.config.descSocio : 20; }
+    if (!Array.isArray(d.instalaciones)) d.instalaciones = instalacionesBase();
+    if (!Array.isArray(d.usos)) d.usos = [];
+    if (d.seq && d.seq.uso === undefined) d.seq.uso = 0;
+  }
+  return d;
+}
 function deserializar(txt) {
   const o = JSON.parse(txt);
   if (!o || typeof o !== 'object' || !o.data) throw new Error('Formato no reconocido');
+  if (o.schema === 4) { o.data = migrar4a5(o.data); o.schema = 5; }
   if (o.schema !== APP.schema) { const e = new Error('Versión de esquema incompatible: ' + o.schema); e.code = 'SCHEMA'; throw e; }
   const d = o.data;
-  ['clientes', 'unidades', 'estadias', 'pagos', 'cargos', 'tickets', 'productos', 'mesas', 'liquidaciones', 'asientos'].forEach(k => { if (!Array.isArray(d[k])) throw new Error('Falta la colección ' + k); });
+  d.schema = APP.schema;
+  ['clientes', 'unidades', 'estadias', 'pagos', 'cargos', 'tickets', 'productos', 'mesas', 'liquidaciones', 'asientos', 'instalaciones', 'usos'].forEach(k => { if (!Array.isArray(d[k])) throw new Error('Falta la colección ' + k); });
   return d;
 }
 function guardar() {
@@ -522,7 +634,7 @@ function restablecerDemo() {
   S = construirSeed();
   PERSIST.activo = true;
   if (PERSIST.problema === 'schema' || PERSIST.problema === 'corrupto') PERSIST.problema = null;
-  UI.selUnidad = 'P01'; UI.selMesa = 'BAR-M02'; UI.tests = null;
+  UI.selUnidad = 'P01'; UI.selMesa = 'BAR-M02'; UI.selInst = 'PIL'; UI.tests = null;
   guardar();
 }
 /** Ejecuta una operación de forma atómica: si algo falla, el estado vuelve atrás. */
@@ -1218,6 +1330,267 @@ function quitarTemporada(id) {
 }
 
 /* =====================================================================
+   12. PILETA Y CANCHAS — cálculo, validaciones y operaciones
+   Tres modalidades, una sola lógica de cobro:
+   · Entrada individual de pileta (venta del día, por persona).
+   · Alquiler de pileta (turno exclusivo, con seña opcional).
+   · Alquiler de cancha (fútbol 5, fútbol 11, pádel; por hora, con seña opcional).
+   Todo uso se cobra en caja/banco o se carga a la cuenta de una estadía activa
+   (cargo cruzado). La seña se registra en «Anticipos de clientes» y se aplica al cobrar.
+   ===================================================================== */
+const instalacion = id => porId(S.instalaciones, id);
+const uso = id => porId(S.usos, id);
+const cuentaIngresoInst = i => i.clase === 'pileta' ? 'ING_PIL' : 'ING_CAN';
+const usoCobrado = u => u.estado === 'cobrada' || u.estado === 'imputada';
+const senaVigente = u => (u.sena && !u.sena.devuelta && !u.sena.aplicada) ? u.sena.importe : 0;
+const senasPendientesUsos = () => suma(S.usos.filter(u => u.estado === 'reservada'), senaVigente);
+const nombreUso = u => u.clienteId ? nombreCliente(cliente(u.clienteId)) : (u.nombre || 'Visitante');
+const horaActual = () => ahora().slice(11, 16);
+/** Personas que ya compraron entrada de pileta en el día (aforo). */
+function aforoUsado(fecha) { return suma(S.usos.filter(u => u.inst === 'PIL' && u.tipo === 'entrada' && u.fecha === fecha && u.estado !== 'cancelada'), u => u.personas); }
+/** Reservas con horario (canchas y alquiler de pileta) de una instalación en una fecha, ordenadas. */
+function usosDe(iid, fecha) { return S.usos.filter(u => u.inst === iid && u.fecha === fecha && u.estado !== 'cancelada' && u.tipo !== 'entrada').sort((a, b) => a.desde.localeCompare(b.desde)); }
+function haySolapeUso(iid, fecha, desde, hasta, exceptoId) {
+  return usosDe(iid, fecha).find(u => u.id !== exceptoId && hm(u.desde) < hm(hasta) && hm(desde) < hm(u.hasta)) || null;
+}
+function estadoInst(i) {
+  if (i.mantenimiento) return 'mantenimiento';
+  const now = hm(horaActual());
+  const hoyU = usosDe(i.id, hoy());
+  if (hoyU.some(u => hm(u.desde) <= now && now < hm(u.hasta))) return 'ocupada';
+  if (hoyU.some(u => hm(u.desde) > now)) return 'reservada';
+  return 'libre';
+}
+
+/**
+ * Cálculo centralizado de pileta y canchas (única fuente de verdad para importes).
+ * Entrada: adultos/menores (+ recargo de temporada alta).
+ * Alquiler de pileta: turno + personas adicionales (+ temporada alta).
+ * Cancha: horas × precio (+ recargo nocturno por iluminación). Descuento de socio una sola vez.
+ */
+function calcularUso(p, cfg) {
+  cfg = cfg || S.config;
+  const I = cfg.inst, errores = [];
+  const ins = p.inst ? instalacion(p.inst) : null;
+  if (!ins) return { ok: false, errores: ['Seleccione una instalación.'] };
+  if (!esFechaISO(p.fecha)) errores.push('Ingrese una fecha válida.');
+  const c = p.cliente || (p.clienteId ? cliente(p.clienteId) : null);
+  const temp = esFechaISO(p.fecha) ? temporadaDe(p.fecha, cfg) : null;
+  const tipo = ins.clase === 'pileta' ? (p.tipo === 'alquiler' ? 'alquiler' : 'entrada') : 'cancha';
+  const lineas = [];
+  let personas = 0, adultos = 0, menores = 0, horas = 0, desde = '', hasta = '', turno = null;
+  const detalleHoras = [];
+  if (tipo === 'entrada') {
+    const P = I.pileta;
+    adultos = entero(p.adultos ?? 0); menores = entero(p.menores ?? 0);
+    if (!(adultos >= 0) || !(menores >= 0)) errores.push('Ingrese cantidades válidas de adultos y menores.');
+    else if (adultos + menores < 1) errores.push('Registre al menos una persona.');
+    else {
+      personas = adultos + menores;
+      if (adultos > 0) lineas.push({ txt: `Entrada adulto (${adultos} × ${money(P.entradaAdulto)})`, imp: adultos * P.entradaAdulto });
+      if (menores > 0) lineas.push({ txt: `Entrada menor de hasta ${P.edadMenor} años (${menores} × ${money(P.entradaMenor)})`, imp: menores * P.entradaMenor });
+      if (temp) lineas.push({ txt: `Recargo por temporada alta (${P.recargoAlta} %)`, imp: pct(suma(lineas, l => l.imp), P.recargoAlta) });
+    }
+  } else if (tipo === 'alquiler') {
+    const P = I.pileta;
+    turno = P.turnos.find(t => t.id === p.turno) || null;
+    if (!turno) errores.push('Seleccione el turno de alquiler.'); else { desde = turno.desde; hasta = turno.hasta; }
+    personas = entero(p.personas ?? 0);
+    if (!(personas >= 1)) errores.push('Indique la cantidad de personas.');
+    else if (personas > P.aforoAlquiler) errores.push(`El alquiler admite hasta ${P.aforoAlquiler} personas.`);
+    if (turno && personas >= 1) {
+      lineas.push({ txt: `Alquiler de pileta · ${turno.nombre.toLowerCase()} ${turno.desde}–${turno.hasta}`, imp: P.alquilerTurno });
+      const extra = Math.max(0, personas - P.personasIncl);
+      if (extra) lineas.push({ txt: `Personas adicionales (${extra} × ${money(P.extraPersona)}; incluidas ${P.personasIncl})`, imp: extra * P.extraPersona });
+      if (temp) lineas.push({ txt: `Recargo por temporada alta (${P.recargoAlta} %)`, imp: pct(suma(lineas, l => l.imp), P.recargoAlta) });
+    }
+  } else {
+    const C = I.canchas[ins.clase];
+    desde = p.desde; horas = entero(p.horas);
+    if (!esHora(desde)) errores.push('Seleccione la hora de inicio.');
+    else if (hm(desde) % 60 !== 0) errores.push('El horario de inicio debe ser en punto.');
+    if (!(horas >= 1 && horas <= C.maxHoras)) errores.push(`La duración debe ser de 1 a ${C.maxHoras} hora(s).`);
+    if (esHora(desde) && horas >= 1 && horas <= C.maxHoras) {
+      hasta = deMin(hm(desde) + horas * 60);
+      if (hm(desde) < hm(I.apertura) || hm(hasta) > hm(I.cierre)) errores.push(`Las canchas funcionan de ${I.apertura} a ${I.cierre}.`);
+      for (let m = hm(desde); m < hm(desde) + horas * 60; m += 60) {
+        const noct = m >= hm(I.nocturnoDesde);
+        detalleHoras.push({ hora: deMin(m), noct, base: C.precioHora, rec: noct ? pct(C.precioHora, I.recargoNocturno) : 0 });
+      }
+      lineas.push({ txt: `${ins.nombre} (${horas} h × ${money(C.precioHora)})`, imp: horas * C.precioHora });
+      const nn = detalleHoras.filter(d => d.noct).length;
+      if (nn) lineas.push({ txt: `Recargo nocturno por iluminación (${nn} h × ${I.recargoNocturno} %)`, imp: suma(detalleHoras, d => d.rec) });
+    }
+  }
+  if (errores.length) return { ok: false, errores };
+  const subtotal = suma(lineas, l => l.imp);
+  const eleg = c ? elegibilidadSocio(c) : { ok: false, motivo: 'Visitante sin socio registrado' };
+  const descuento = eleg.ok ? pct(subtotal, I.descSocio) : 0;
+  return {
+    ok: true, errores: [], inst: ins.id, tipo, fecha: p.fecha, desde, hasta, horas, personas, adultos, menores, turno: turno ? turno.id : null,
+    lineas, detalleHoras, alta: !!temp && tipo !== 'cancha', subtotal, socio: { elegible: eleg.ok, motivo: eleg.motivo, vencida: !!eleg.vencida },
+    descSocio: I.descSocio, descuento, total: subtotal - descuento
+  };
+}
+/** Validaciones de negocio para una entrada, una reserva de cancha o un alquiler de pileta. */
+function validarUso(d) {
+  const ins = instalacion(d.inst);
+  if (!ins) return ['Seleccione una instalación.'];
+  const errs = [];
+  if (ins.mantenimiento) errs.push(`${ins.nombre} está en mantenimiento${ins.motivoMant ? ' (' + ins.motivoMant + ')' : ''}.`);
+  const calc = calcularUso(d);
+  if (!calc.ok) return errs.concat(calc.errores);
+  if (d.clienteId && !cliente(d.clienteId)) errs.push('El cliente seleccionado no existe.');
+  const h = hoy();
+  if (calc.tipo === 'entrada') {
+    if (calc.fecha !== h) errs.push('Las entradas individuales se venden para el día de hoy.');
+    const usado = aforoUsado(calc.fecha), cap = S.config.inst.pileta.aforo;
+    if (usado + calc.personas > cap) errs.push(`Aforo de la pileta excedido: hoy hay ${usado} de ${cap} lugares vendidos (quedan ${Math.max(0, cap - usado)}).`);
+  } else {
+    if (!d.clienteId && !limpiar(d.nombre, 60)) errs.push('Seleccione un cliente o indique el nombre de quien reserva.');
+    if (calc.fecha < h) errs.push('No se puede reservar en una fecha pasada.');
+    else if (calc.fecha === h && hm(calc.hasta) <= hm(horaActual())) errs.push('Ese horario ya finalizó.');
+    const sol = haySolapeUso(calc.inst, calc.fecha, calc.desde, calc.hasta);
+    if (sol) errs.push(`Superposición con la reserva ${sol.id} (${sol.desde}–${sol.hasta}, ${nombreUso(sol)}).`);
+  }
+  return errs;
+}
+function crearUso(d) {
+  const errs = validarUso(d);
+  if (errs.length) throw new ErrNegocio(errs.join(' '));
+  const calc = calcularUso(d), ins = instalacion(d.inst);
+  const u = {
+    id: nextId('uso', 'US'), inst: ins.id, tipo: calc.tipo, fecha: calc.fecha, desde: calc.desde, hasta: calc.hasta, turno: calc.turno, horas: calc.horas,
+    personas: calc.personas, adultos: calc.adultos, menores: calc.menores, clienteId: d.clienteId || null,
+    nombre: d.clienteId ? '' : (limpiar(d.nombre, 60) || 'Visitante del día'), calc, estado: 'reservada', creada: ahora(),
+    sena: null, cobro: null, estadiaId: null, notas: limpiar(d.notas, 160), origen: ORIGEN
+  };
+  S.usos.push(u);
+  if (calc.tipo === 'entrada') {
+    if (!d.cobro) throw new ErrNegocio('Indique cómo se cobra la entrada.');
+    liquidarUso(u, d.cobro);
+  } else {
+    if (d.sena && d.sena.importe > 0) registrarSena(u.id, d.sena.importe, d.sena.medio);
+    bitacora(`Reserva ${u.id}: ${ins.nombre} ${fFecha(u.fecha)} ${u.desde}–${u.hasta} — ${nombreUso(u)}`, u.id);
+  }
+  return u;
+}
+/** Seña de una reserva: Debe Caja/Banco · Haber Anticipos de clientes. */
+function registrarSena(id, importe, medio) {
+  const u = uso(id);
+  if (!u) throw new ErrNegocio('La reserva no existe.');
+  if (u.estado !== 'reservada') throw new ErrNegocio('Solo las reservas pendientes admiten seña.');
+  if (u.sena && !u.sena.devuelta) throw new ErrNegocio('La reserva ya tiene una seña registrada.');
+  if (!Number.isInteger(importe) || importe <= 0) throw new ErrNegocio('Ingrese un importe de seña válido.');
+  if (importe > u.calc.total) throw new ErrNegocio(`La seña no puede superar el total de la reserva (${money(u.calc.total)}).`);
+  if (!MEDIOS[medio]) throw new ErrNegocio('Seleccione un medio de pago válido.');
+  const a = registrarAsiento({ concepto: `Seña recibida ${u.id} — ${MEDIOS[medio].nombre}`, ref: u.id, refTipo: 'uso', lineas: [{ cuenta: MEDIOS[medio].cuenta, debe: importe }, { cuenta: 'ANT', haber: importe }] });
+  u.sena = { importe, medio, fecha: ahora(), asientoId: a.id, aplicada: false, devuelta: false };
+  bitacora(`Seña ${money(importe)} (${MEDIOS[medio].nombre}) en ${u.id}`, u.id);
+  return u;
+}
+/**
+ * Cobro definitivo del uso (devenga el ingreso). Atómico e idempotente.
+ *  · modo «pago»: Debe Caja/Banco (saldo) + Anticipos (seña) + Descuentos · Haber Ingresos.
+ *  · modo «imputar»: igual, pero el saldo va a Créditos por cobrar y se registra un cargo en la estadía.
+ */
+function liquidarUso(u, o) {
+  const ins = instalacion(u.inst);
+  marcarOperacion('usoCobro:' + u.id);
+  const c = u.calc, sena = senaVigente(u), due = c.total - sena;
+  let modo = o && o.modo === 'imputar' ? 'imputar' : 'pago';
+  if (due === 0) modo = 'pago';
+  let e = null, lineas;
+  if (modo === 'imputar') {
+    e = estadia(o.estadiaId);
+    if (!e) throw new ErrNegocio('Seleccione la estadía a la que se cargará el importe.');
+    if (e.estado !== 'activa') throw new ErrNegocio(`La estadía ${e.id} está ${ESTADO_EST_TXT[e.estado].toLowerCase()}: no admite nuevos cargos.`);
+    lineas = [{ cuenta: 'CRED', debe: due }];
+  } else {
+    if (due > 0 && !(o && MEDIOS[o.medio])) throw new ErrNegocio('Seleccione efectivo o transferencia.');
+    lineas = due > 0 ? [{ cuenta: MEDIOS[o.medio].cuenta, debe: due }] : [];
+  }
+  if (sena) lineas.push({ cuenta: 'ANT', debe: sena });
+  if (c.descuento) lineas.push({ cuenta: 'DESC_INS', debe: c.descuento });
+  lineas.push({ cuenta: cuentaIngresoInst(ins), haber: c.subtotal });
+  const destino = modo === 'imputar' ? `→ ${e.id} (${e.unidadId})` : due > 0 ? `— ${MEDIOS[o.medio].nombre}` : '— seña aplicada';
+  const a = registrarAsiento({ concepto: `${USO_TIPO_TXT[u.tipo]} ${u.id} · ${ins.nombre} ${destino}`, ref: u.id, refTipo: 'uso', lineas });
+  const op = nextId('op', 'OP', 5);
+  let cargo = null;
+  if (modo === 'imputar') {
+    const detalle = u.tipo === 'entrada' ? `${u.adultos} adulto(s) + ${u.menores} menor(es)` : `${fFecha(u.fecha)} ${u.desde}–${u.hasta}`;
+    cargo = {
+      id: nextId('car', 'CG'), op, tipo: u.inst === 'PIL' ? 'pileta' : 'cancha', usoId: u.id, estadiaId: e.id, clienteId: e.clienteId, unidadId: e.unidadId,
+      importe: due, concepto: `${USO_TIPO_TXT[u.tipo]} · ${ins.nombre} (${detalle})${sena ? ' · seña ' + money(sena) + ' ya abonada' : ''}`, fecha: ahora(), asientoId: a.id, origen: ORIGEN
+    };
+    S.cargos.push(cargo);
+    u.estadiaId = e.id;
+  }
+  if (sena) { u.sena.aplicada = true; u.sena.asientoAplicacion = a.id; }
+  u.estado = modo === 'imputar' ? 'imputada' : 'cobrada';
+  u.cobro = { fecha: ahora(), tipo: modo === 'imputar' ? 'imputacion' : 'pago', medio: modo === 'pago' && due > 0 ? o.medio : null, importe: due, sena, asientoId: a.id, cargoId: cargo ? cargo.id : null, estadiaId: e ? e.id : null, op };
+  bitacora(`${USO_TIPO_TXT[u.tipo]} ${u.id} cobrado ${money(c.total)} ${modo === 'imputar' ? 'a la cuenta ' + e.id : due > 0 ? '(' + MEDIOS[o.medio].nombre + ')' : '(seña aplicada)'}`, u.id);
+  return u;
+}
+function cobrarUso(id, o) {
+  const u = uso(id);
+  if (!u) throw new ErrNegocio('La reserva no existe.');
+  if (usoCobrado(u)) throw new ErrNegocio(`${u.id} ya fue cobrada. No se registran cobros duplicados.`, 'DUPLICADO');
+  if (u.estado !== 'reservada') throw new ErrNegocio('La reserva está cancelada.');
+  if (u.fecha > hoy()) throw new ErrNegocio(`La reserva es para el ${fFecha(u.fecha)}: el cobro final se registra el día de uso (mientras tanto puede cargar una seña).`);
+  return liquidarUso(u, o);
+}
+function cancelarUso(id) {
+  const u = uso(id);
+  if (!u) throw new ErrNegocio('La reserva no existe.');
+  if (u.estado === 'cancelada') throw new ErrNegocio(`${u.id} ya está cancelada.`, 'DUPLICADO');
+  if (u.estado !== 'reservada') throw new ErrNegocio('Solo se pueden cancelar reservas pendientes de cobro.');
+  if (senaVigente(u)) {
+    const a = registrarAsiento({ concepto: `Devolución de seña ${u.id} (cancelación)`, ref: u.id, refTipo: 'uso', lineas: [{ cuenta: 'ANT', debe: u.sena.importe }, { cuenta: MEDIOS[u.sena.medio].cuenta, haber: u.sena.importe }] });
+    u.sena.devuelta = true; u.sena.asientoDevolucion = a.id;
+  }
+  u.estado = 'cancelada'; u.cancelada = ahora();
+  bitacora(`Reserva ${u.id} cancelada (${instalacion(u.inst).nombre} ${fFecha(u.fecha)} ${u.desde})`, u.id);
+  return u;
+}
+function setMantInst(id, on, motivo) {
+  const i = instalacion(id);
+  if (!i) throw new ErrNegocio('Instalación inexistente.');
+  if (on) {
+    const pend = S.usos.filter(u => u.inst === id && u.estado === 'reservada' && u.tipo !== 'entrada' && u.fecha >= hoy());
+    if (pend.length) throw new ErrNegocio(`${i.nombre} tiene ${pend.length} reserva(s) pendiente(s) (${pend.map(u => u.id).join(', ')}). Cancélelas o cóbrelas antes de enviarla a mantenimiento.`);
+    i.mantenimiento = true; i.motivoMant = limpiar(motivo, 120) || 'Mantenimiento programado';
+  } else { i.mantenimiento = false; i.motivoMant = ''; }
+  bitacora(`${i.nombre}: ${on ? 'enviada a mantenimiento' : 'habilitada'}`, id);
+  return i;
+}
+function guardarConfigInst(d) {
+  const errs = [], I = S.config.inst;
+  const imp = (k, et) => { const v = aCentavos(d[k]); if (!(v >= 0)) errs.push(`${et}: importe inválido.`); return v; };
+  const ent = (k, et, a, b) => { const v = entero(d[k]); if (!(v >= a && v <= b)) errs.push(`${et}: debe estar entre ${a} y ${b}.`); return v; };
+  const num = (k, et, a, b) => { const v = Number(d[k]); if (!(d[k] !== '' && v >= a && v <= b)) errs.push(`${et}: debe estar entre ${a} y ${b} %.`); return v; };
+  const P = {
+    entradaAdulto: imp('pi_ea', 'Entrada adulto'), entradaMenor: imp('pi_em', 'Entrada menor'), edadMenor: ent('pi_edad', 'Edad máxima de menor', 1, 17),
+    aforo: ent('pi_aforo', 'Aforo de la pileta', 1, 1000), alquilerTurno: imp('pi_alq', 'Alquiler por turno'), personasIncl: ent('pi_incl', 'Personas incluidas', 1, 200),
+    extraPersona: imp('pi_extra', 'Persona adicional'), aforoAlquiler: ent('pi_aforoAlq', 'Máximo de personas en alquiler', 1, 300), recargoAlta: num('pi_alta', 'Recargo de temporada alta', 0, 300)
+  };
+  if (P.personasIncl > P.aforoAlquiler) errs.push('Las personas incluidas no pueden superar el máximo del alquiler.');
+  const canchas = {};
+  for (const k of Object.keys(I.canchas)) {
+    const precioHora = imp('c_' + k + '_p', 'Precio de ' + I.canchas[k].nombre), maxHoras = ent('c_' + k + '_h', 'Duración máxima de ' + I.canchas[k].nombre, 1, 4);
+    canchas[k] = { ...I.canchas[k], precioHora, maxHoras };
+  }
+  const apertura = d.apertura, cierre = d.cierre, nocturnoDesde = d.nocturnoDesde;
+  if (!esHora(apertura) || !(esHora(cierre) || cierre === '24:00') || !esHora(nocturnoDesde)) errs.push('Indique horarios válidos.');
+  else if (hm(cierre) - hm(apertura) < 60) errs.push('El cierre debe ser al menos una hora posterior a la apertura.');
+  const recargoNocturno = num('recargoNocturno', 'Recargo nocturno', 0, 300), descSocio = num('descSocio', 'Descuento de socio', 0, 100), senaPct = num('senaPct', 'Seña sugerida', 0, 100);
+  if (errs.length) throw new ErrNegocio(errs.join(' '));
+  Object.assign(I, { apertura, cierre, nocturnoDesde, recargoNocturno, descSocio, senaPct, canchas });
+  Object.assign(I.pileta, P);
+  bitacora('Tarifas de pileta y canchas actualizadas (aplican a nuevas reservas y ventas)', 'config');
+}
+
+/* =====================================================================
    15. NAVEGACIÓN, COMPONENTES DE INTERFAZ Y EVENTOS (infraestructura)
    ===================================================================== */
 const $ = (s, r = document) => r.querySelector(s);
@@ -1228,6 +1601,7 @@ const ICON = {
   predio: '<path d="M3 20h18M12 4 4 20M12 4l8 16M9.5 20 12 14l2.5 6"/>',
   estadias: '<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7 13.5h4M7 17h7"/>',
   gastro: '<path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10M17 3c-2 1-3 3.5-3 7h3v11"/>',
+  deportes: '<path d="M3 19c1.5 1.4 3 1.4 4.5 0s3-1.4 4.5 0 3 1.4 4.5 0 3-1.4 4.5 0M8 15V6a2.5 2.5 0 0 1 5 0M13 15V6a2.5 2.5 0 0 1 5 0M8 9.5h10"/>',
   consumos: '<path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2zM9 7.5h6M9 11.5h6M9 15.5h4"/>',
   subalquiler: '<path d="M3 11 12 4l9 7M5.5 9.5V20h13V9.5M10 20v-5.5h4V20"/>',
   caja: '<rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10h19M6.5 15h3"/>',
@@ -1237,7 +1611,7 @@ const ICON = {
 const ico = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
 const RUTAS = [
   ['dashboard', 'Dashboard'], ['clientes', 'Socios y clientes'], ['predio', 'Mapa del predio'], ['estadias', 'Reservas y estadías'],
-  ['gastro', 'Mapa gastronómico'], ['consumos', 'Consumos y cuentas'], ['subalquiler', 'Subalquileres y propietarios'],
+  ['gastro', 'Mapa gastronómico'], ['deportes', 'Pileta y canchas'], ['consumos', 'Consumos y cuentas'], ['subalquiler', 'Subalquileres y propietarios'],
   ['caja', 'Caja y contabilidad'], ['reportes', 'Reportes'], ['sep'], ['config', 'Configuración y pruebas']
 ];
 const TITULOS = Object.fromEntries(RUTAS.filter(r => r[1]));
@@ -1346,9 +1720,10 @@ const VISTAS = {};
 function renderNav() {
   const abiertos = S.tickets.filter(t => t.estado === 'abierto').length;
   const activas = S.estadias.filter(e => e.estado === 'activa').length;
+  const instHoy = S.usos.filter(u => u.estado === 'reservada' && u.fecha === hoy()).length;
   $('#nav').innerHTML = RUTAS.map(r => {
     if (r[0] === 'sep') return '<div class="sep"></div>';
-    const badge = r[0] === 'gastro' && abiertos ? `<span class="badge" title="Cuentas abiertas">${abiertos}</span>` : r[0] === 'estadias' && activas ? `<span class="badge" title="Estadías activas">${activas}</span>` : '';
+    const badge = r[0] === 'gastro' && abiertos ? `<span class="badge" title="Cuentas abiertas">${abiertos}</span>` : r[0] === 'estadias' && activas ? `<span class="badge" title="Estadías activas">${activas}</span>` : r[0] === 'deportes' && instHoy ? `<span class="badge" title="Reservas de hoy pendientes de cobro">${instHoy}</span>` : '';
     return `<a data-a="go" data-v="${r[0]}" class="${UI.route === r[0] ? 'on' : ''}" ${UI.route === r[0] ? 'aria-current="page"' : ''} href="#${r[0]}"><span class="ic">${ico(r[0])}</span><span class="lb">${esc(r[1])}</span>${badge}</a>`;
   }).join('');
 }
@@ -1423,8 +1798,12 @@ VISTAS.dashboard = () => {
   S.clientes.filter(c => estadoCuotas(c) === 'Vencida').forEach(c => alertas.push(['bad', `${nombreCliente(c)}: cuota vencida el ${fFecha(c.cuotaVence)} (sin descuento de socio)`, 'verCliente', c.id]));
   S.productos.filter(p => p.activo && p.stock <= APP.stockBajo).forEach(p => alertas.push(['warn', `Stock bajo: ${p.nombre} (${p.stock} u.)`, 'go', 'consumos']));
   S.liquidaciones.filter(l => l.estado !== 'Pagada').forEach(l => alertas.push(['warn', `Liquidación ${l.id} pendiente de pago: ${money(l.importeProp)}`, 'go', 'subalquiler']));
+  S.usos.filter(u => u.estado === 'reservada' && (u.fecha < hoy() || (u.fecha === hoy() && hm(u.hasta) <= hm(horaActual())))).forEach(u => alertas.push([u.fecha < hoy() ? 'bad' : 'warn', `${instalacion(u.inst).nombre}: reserva ${u.id} (${nombreUso(u)}, ${fFecha(u.fecha)} ${u.desde}) pendiente de cobro`, 'verUso', u.id]));
+  S.instalaciones.filter(i => i.mantenimiento).forEach(i => alertas.push(['warn', `${i.nombre} en mantenimiento: ${i.motivoMant}`, 'verInst', i.id]));
   const occ = ['ocupada', 'reservada', 'libre', 'mantenimiento'].map(st => ({ st, n: S.unidades.filter(u => estadoUnidad(u) === st).length }));
   const activas = S.estadias.filter(e => e.estado === 'activa');
+  const mi = metricasInst();
+  const agendaHoy = S.usos.filter(u => u.fecha === hoy() && u.tipo !== 'entrada' && u.estado !== 'cancelada').sort((a, b) => a.desde.localeCompare(b.desde));
   return `
   <div class="kpis">
     ${kpi('Total de unidades', m.total, `${S.unidades.filter(u => u.clase === 'parcela').length} parcelas · ${S.unidades.filter(u => u.clase === 'cabana').length} cabaña(s)`)}
@@ -1435,6 +1814,8 @@ VISTAS.dashboard = () => {
     ${kpi('Huéspedes alojados', m.huespedes, `${m.activas} estadía(s) activa(s)`)}
     ${kpi('Ingresos por estadías', money(m.ingEstClub), `Netos del club · bruto ${money(m.ingEstBruto)}`, 'acc')}
     ${kpi('Ingresos gastronómicos', money(m.ingGas), 'Pagados + imputados', 'acc')}
+    ${kpi('Ingresos pileta y canchas', money(mi.ingNeto), `Netos de descuentos · bruto ${money(mi.ingBruto)}`, 'acc')}
+    ${kpi('Pileta hoy', `${mi.aforoHoy} / ${mi.aforo}`, `Entradas vendidas · ${mi.reservasHoy} reserva(s) de canchas y alquiler`)}
     ${kpi('Consumos pendientes de cobro', money(m.pendMesas), `${m.ticketsAbiertos} cuenta(s) abierta(s) en mesas`, 'warn')}
     ${kpi('Cobros registrados', money(m.cobros), 'Ingresos a caja y banco')}
     ${kpi('Saldos por cobrar', money(m.porCobrar), `Huéspedes · anticipos ${money(m.anticipos)}`, m.porCobrar ? 'warn' : '')}
@@ -1457,6 +1838,14 @@ VISTAS.dashboard = () => {
     </div>
     <div class="card s5"><h3>Actividad reciente</h3>
       ${S.log.length ? `<div class="list">${S.log.slice(0, 8).map(l => `<div class="it"><span class="small">${esc(l.texto)}</span><span class="sub tiny" style="white-space:nowrap">${fFechaHora(l.fecha)} ${pillOrigen(l.origen)}</span></div>`).join('')}</div>` : vacio('Sin actividad')}
+    </div>
+    <div class="card s7"><h3>Pileta y canchas <button class="btn ghost xs" data-a="go" data-v="deportes">Abrir mapa</button></h3>
+      <div class="tw"><table><thead><tr><th>Instalación</th><th>Estado</th><th>Hoy</th><th class="num">Tarifa</th></tr></thead><tbody>
+      ${S.instalaciones.map(i => { const st = estadoInst(i), C = i.clase === 'pileta' ? null : S.config.inst.canchas[i.clase]; return `<tr class="click" data-a="verInst" data-v="${i.id}"><td><b>${esc(i.nombre)}</b></td><td>${pillInst(st)}</td><td class="small">${st === 'mantenimiento' ? esc(i.motivoMant) : esc(subTextoInst(i))}</td><td class="num">${C ? money(C.precioHora) + ' / h' : money(S.config.inst.pileta.entradaAdulto) + ' adulto'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+    </div>
+    <div class="card s5"><h3>Agenda de hoy · canchas y pileta</h3>
+      ${agendaHoy.length ? `<div class="list">${agendaHoy.map(u => `<div class="it" data-a="verUso" data-v="${u.id}"><span class="small"><b>${u.desde}–${u.hasta}</b> · ${esc(instalacion(u.inst).nombre.replace('Cancha de ', ''))} · ${esc(nombreUso(u))}</span>${pillUso(u.estado)}</div>`).join('')}</div>` : vacio('Sin reservas hoy', 'Reserve una cancha desde «Pileta y canchas».')}
     </div>
   </div>`;
 };
@@ -1539,6 +1928,7 @@ function modalCliente(id) {
 function modalVerCliente(id) {
   const c = cliente(id); if (!c) return;
   const ests = S.estadias.filter(e => e.clienteId === id).sort((a, b) => b.ingreso.localeCompare(a.ingreso));
+  const usosCli = S.usos.filter(u => u.clienteId === id).sort((a, b) => b.fecha.localeCompare(a.fecha));
   const el = elegibilidadSocio(c);
   abrirModal({
     titulo: `${nombreCliente(c)} · ${c.id}`, ancho: 'wide',
@@ -1552,6 +1942,7 @@ function modalVerCliente(id) {
         ${el.vencida ? '<div class="notice warn mt">Cuotas vencidas: el beneficio de socio activo no se aplica automáticamente hasta regularizar.</div>' : ''}
       </div>
       <div class="card s7"><h3>Historial de estadías</h3>${ests.length ? `<div class="tw"><table><thead><tr><th>Estadía</th><th>Unidad</th><th>Fechas</th><th>Estado</th><th class="num">Saldo</th></tr></thead><tbody>${ests.map(e => `<tr class="click" data-a="verEstadia" data-v="${e.id}"><td>${e.id}</td><td>${e.unidadId}</td><td>${fFecha(e.ingreso)} → ${fFecha(e.salida)}</td><td>${pillEstadia(e.estado)}</td><td class="num">${e.estado === 'cancelada' ? '—' : money(resumenEstadia(e).saldo)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Sin estadías registradas')}</div>
+      <div class="card s12"><h3>Pileta y canchas</h3>${usosCli.length ? `<div class="tw"><table><thead><tr><th>Código</th><th>Fecha</th><th>Instalación</th><th>Tipo</th><th>Estado</th><th class="num">Total</th></tr></thead><tbody>${usosCli.map(u => `<tr class="click" data-a="verUso" data-v="${u.id}"><td class="mono">${u.id}</td><td>${fFecha(u.fecha)}${u.desde ? ' ' + u.desde : ''}</td><td>${esc(instalacion(u.inst).nombre)}</td><td class="small">${USO_TIPO_TXT[u.tipo]}</td><td>${pillUso(u.estado)}</td><td class="num">${money(u.calc.total)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Sin reservas ni entradas', 'Todavía no usó la pileta ni las canchas.')}</div>
     </div>`,
     pie: `<button class="btn ghost" type="button" data-close>Cerrar</button><button class="btn ghost" type="button" data-a="nuevaReservaCliente" data-v="${c.id}">+ Reserva</button><button class="btn" type="button" data-a="editarCliente" data-v="${c.id}">Editar</button>`
   });
@@ -2067,10 +2458,10 @@ VISTAS.consumos = () => {
       </tbody></table></div></div>`;
   } else if (tab === 'cargos') {
     const q = UI.f.carQ.toLowerCase();
-    const cs = S.cargos.filter(c => !q || `${c.id} ${c.op} ${c.ticketId} ${c.estadiaId} ${c.unidadId} ${nombreCliente(cliente(c.clienteId))}`.toLowerCase().includes(q)).slice().reverse();
-    body = `<div class="filters"><div class="field" style="flex:1"><label for="fCarQ">Buscar cargo</label><input id="fCarQ" data-f="carQ" value="${esc(UI.f.carQ)}" placeholder="Operación, ticket, estadía, parcela o cliente"></div></div>
-      <div class="card"><h3>Historial de cargos cruzados (POS → estadía)</h3><div class="tw"><table><thead><tr><th>Cargo</th><th>Operación</th><th>Fecha</th><th>Ticket</th><th>Estadía</th><th>Parcela</th><th>Cliente</th><th>Concepto</th><th class="num">Importe</th><th>Asiento</th></tr></thead><tbody>
-      ${cs.map(c => `<tr class="click" data-a="verEstadia" data-v="${c.estadiaId}"><td class="mono">${c.id}</td><td class="mono">${c.op}</td><td>${fFechaHora(c.fecha)}</td><td class="mono">${c.ticketId}</td><td class="mono">${c.estadiaId}</td><td><b>${c.unidadId}</b></td><td>${esc(nombreCliente(cliente(c.clienteId)))}</td><td class="small">${esc(c.concepto)}</td><td class="num">${money(c.importe)}</td><td class="mono">${c.asientoId}</td></tr>`).join('') || `<tr><td colspan="10">${vacio('Sin cargos imputados', 'Impute un ticket desde el mapa gastronómico.')}</td></tr>`}
+    const cs = S.cargos.filter(c => !q || `${c.id} ${c.op} ${c.ticketId || c.usoId || ''} ${c.estadiaId} ${c.unidadId} ${nombreCliente(cliente(c.clienteId))}`.toLowerCase().includes(q)).slice().reverse();
+    body = `<div class="filters"><div class="field" style="flex:1"><label for="fCarQ">Buscar cargo</label><input id="fCarQ" data-f="carQ" value="${esc(UI.f.carQ)}" placeholder="Operación, ticket o reserva, estadía, parcela o cliente"></div></div>
+      <div class="card"><h3>Historial de cargos cruzados (POS, pileta y canchas → estadía)</h3><div class="tw"><table><thead><tr><th>Cargo</th><th>Operación</th><th>Fecha</th><th>Ticket / uso</th><th>Estadía</th><th>Parcela</th><th>Cliente</th><th>Concepto</th><th class="num">Importe</th><th>Asiento</th></tr></thead><tbody>
+      ${cs.map(c => `<tr class="click" data-a="verEstadia" data-v="${c.estadiaId}"><td class="mono">${c.id}</td><td class="mono">${c.op}</td><td>${fFechaHora(c.fecha)}</td><td class="mono">${c.ticketId || c.usoId || '—'}</td><td class="mono">${c.estadiaId}</td><td><b>${c.unidadId}</b></td><td>${esc(nombreCliente(cliente(c.clienteId)))}</td><td class="small">${esc(c.concepto)}</td><td class="num">${money(c.importe)}</td><td class="mono">${c.asientoId}</td></tr>`).join('') || `<tr><td colspan="10">${vacio('Sin cargos imputados', 'Impute un ticket desde el mapa gastronómico.')}</td></tr>`}
       </tbody>${cs.length ? `<tfoot><tr><td colspan="8">Total imputado</td><td class="num">${money(suma(cs, c => c.importe))}</td><td></td></tr></tfoot>` : ''}</table></div></div>`;
   } else if (tab === 'directos') {
     const ts = S.tickets.filter(t => t.estado === 'pagado').reverse();
@@ -2161,6 +2552,418 @@ function modalUnidadTercero(id) {
 }
 
 /* =====================================================================
+   PILETA Y CANCHAS (vistas, mapa, agenda y formularios)
+   ===================================================================== */
+const pillInst = st => `<span class="pill ${st === 'mantenimiento' ? 'mant' : st}"><span class="dot" style="background:${COLORES[st]}"></span>${INST_ESTADO_TXT[st]}</span>`;
+const pillUso = st => `<span class="pill ${{ reservada: 'reservada', cobrada: 'ok', imputada: 'info', cancelada: '' }[st]}">${USO_ESTADO_TXT[st]}</span>`;
+const sinCentavos = c => money(c).replace(/,\d\d$/, '');
+function metricasInst() {
+  const h = hoy();
+  const cobrados = S.usos.filter(usoCobrado);
+  const cobradosHoy = cobrados.filter(u => u.cobro.fecha.slice(0, 10) === h);
+  const ing = saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor;
+  return {
+    ingBruto: ing, descuentos: saldoCuenta('DESC_INS').deudor, ingNeto: ing - saldoCuenta('DESC_INS').deudor,
+    ingHoy: suma(cobradosHoy, u => u.calc.total), nHoy: cobradosHoy.length,
+    aforoHoy: aforoUsado(h), aforo: S.config.inst.pileta.aforo,
+    reservasHoy: S.usos.filter(u => u.fecha === h && u.tipo !== 'entrada' && u.estado !== 'cancelada').length,
+    pendientes: S.usos.filter(u => u.estado === 'reservada'),
+    cargadoAParcelas: suma(S.usos.filter(u => u.estado === 'imputada'), u => u.cobro.importe)
+  };
+}
+function subTextoInst(i) {
+  const h = hoy(), now = hm(horaActual());
+  if (i.clase === 'pileta') {
+    const al = usosDe('PIL', h);
+    return `Aforo hoy ${aforoUsado(h)} / ${S.config.inst.pileta.aforo}${al.length ? ' · alquiler ' + al[0].desde : ''}`;
+  }
+  const us = usosDe(i.id, h);
+  if (!us.length) return 'Sin reservas hoy';
+  const prox = us.find(u => hm(u.hasta) > now);
+  return prox ? `${us.length} reserva(s) hoy · ${hm(prox.desde) <= now ? 'en curso' : 'próxima ' + prox.desde}` : `${us.length} reserva(s) hoy · finalizadas`;
+}
+function svgInst() {
+  const sel = UI.selInst, h = hoy();
+  const st = id => estadoInst(instalacion(id));
+  const badge = (x, y, id) => {
+    const s = st(id), txt = id === 'PIL' && s === 'libre' ? 'Abierta' : INST_ESTADO_TXT[s];
+    const w = 18 + txt.length * 7, tc = s === 'libre' || s === 'reservada' ? '#0b2414' : '#fff';
+    return `<rect x="${x}" y="${y}" width="${w}" height="24" rx="12" fill="${COLORES[s]}"/><text x="${x + w / 2}" y="${y + 16.5}" text-anchor="middle" font-size="12.5" font-weight="700" fill="${tc}">${esc(txt)}</text>`;
+  };
+  const rotulo = (x, y, id, nombre) => `<text x="${x}" y="${y}" text-anchor="middle" font-size="25" font-weight="750" fill="#fff" paint-order="stroke" stroke="rgba(6,14,10,.75)" stroke-width="4">${esc(nombre)}</text><text x="${x}" y="${y + 21}" text-anchor="middle" font-size="13.5" fill="#f2f7f3" paint-order="stroke" stroke="rgba(6,14,10,.75)" stroke-width="3.5">${esc(subTextoInst(instalacion(id)))}</text>`;
+  const grupo = (id, x, y, ancho, alto, cuerpo) => {
+    const i = instalacion(id), s = st(id), on = sel === id;
+    return `<g class="unit ${on ? 'sel' : ''}" data-a="selInst" data-v="${id}" tabindex="0" role="button" aria-pressed="${on}" aria-label="${esc(i.nombre)}: ${INST_ESTADO_TXT[s]}">${cuerpo}
+      <rect class="halo" x="${x}" y="${y}" width="${ancho}" height="${alto}" rx="16" stroke="${COLORES[s]}" stroke-width="5"/>${on ? `<rect class="ring" x="${x - 6}" y="${y - 6}" width="${ancho + 12}" height="${alto + 12}" rx="21"/>` : ''}${badge(x + 12, y + 10, id)}
+      ${s === 'mantenimiento' ? `<rect x="${x}" y="${y}" width="${ancho}" height="${alto}" rx="16" fill="rgba(20,24,22,.55)"/><text x="${x + ancho / 2}" y="${y + alto / 2 + 6}" text-anchor="middle" font-size="22" font-weight="700" fill="#d5dcd8">En mantenimiento</text>` : ''}</g>`;
+  };
+  const arboles = [[22, 335], [385, 330], [388, 600], [725, 335], [985, 335], [985, 600], [22, 600]];
+  const linea = 'fill="none" stroke="#e9f5ec" stroke-width="2" opacity=".85"';
+  let s = `<svg viewBox="0 0 1000 620" role="group" aria-label="Mapa interactivo de la pileta y las canchas">
+  <defs>
+    <pattern id="pasto2" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="4" cy="5" r="1" fill="#244232"/><circle cx="15" cy="14" r="1" fill="#1f3a2b"/></pattern>
+    <pattern id="agua" width="40" height="14" patternUnits="userSpaceOnUse"><path d="M0 7 q10 -7 20 0 t20 0" fill="none" stroke="#bfe9f7" stroke-width="1.4" opacity=".35"/></pattern>
+    <pattern id="cesped" width="68" height="40" patternUnits="userSpaceOnUse"><rect width="34" height="40" fill="#2f7d4a"/><rect x="34" width="34" height="40" fill="#368c54"/></pattern>
+  </defs>
+  <rect width="1000" height="620" fill="#162a1f"/><rect width="1000" height="620" fill="url(#pasto2)"/>
+  <path d="M0 322 H1000" stroke="#5b4a35" stroke-width="20" opacity=".7"/><path d="M0 322 H1000" stroke="#c9b48a" stroke-width="2" stroke-dasharray="12 12" opacity=".45"/>
+  <text x="500" y="327" text-anchor="middle" fill="#e9dcc0" font-size="11" opacity=".7" letter-spacing="3">CAMINO A LAS INSTALACIONES</text>
+  ${arboles.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="13" fill="#2e6a45"/><circle cx="${x - 4}" cy="${y - 4}" r="7" fill="#3d8458"/>`).join('')}`;
+  // --- Pileta ---
+  s += grupo('PIL', 40, 40, 420, 260, `
+    <rect x="40" y="40" width="420" height="260" rx="16" fill="#3a3f3b"/>
+    <rect x="68" y="76" width="300" height="196" rx="14" fill="#2b84ad"/><rect x="68" y="76" width="300" height="196" rx="14" fill="url(#agua)"/>
+    <rect x="68" y="76" width="300" height="196" rx="14" fill="none" stroke="#9fd8ee" stroke-width="3" opacity=".7"/>
+    <rect x="388" y="82" width="58" height="104" rx="12" fill="#3fa8d1"/><rect x="388" y="82" width="58" height="104" rx="12" fill="url(#agua)"/>
+    <text x="417" y="138" text-anchor="middle" font-size="11" fill="#e7f6fc" opacity=".9" transform="rotate(-90 417 138)">Chicos</text>
+    ${[[394, 202], [394, 228], [394, 254]].map(([x, y]) => `<rect x="${x}" y="${y}" width="46" height="18" rx="5" fill="#d9cdb8" opacity=".85"/>`).join('')}
+    <path d="M78 262 v-24 a8 8 0 0 1 16 0 M92 262 v-24" fill="none" stroke="#dfe7e3" stroke-width="3" stroke-linecap="round"/>
+    ${rotulo(218, 168, 'PIL', 'Pileta')}`);
+  // --- Fútbol 11 ---
+  s += grupo('F11', 500, 40, 460, 260, `
+    <rect x="500" y="40" width="460" height="260" rx="16" fill="#27302b"/>
+    <rect x="518" y="62" width="424" height="216" rx="6" fill="url(#cesped)"/>
+    <g ${linea}><rect x="530" y="72" width="400" height="196"/><path d="M730 72 V268"/><circle cx="730" cy="170" r="32"/><rect x="530" y="116" width="64" height="108"/><rect x="866" y="116" width="64" height="108"/><rect x="530" y="142" width="26" height="56"/><rect x="904" y="142" width="26" height="56"/></g>
+    <rect x="519" y="152" width="11" height="36" fill="#cfd8d3"/><rect x="930" y="152" width="11" height="36" fill="#cfd8d3"/>
+    ${rotulo(730, 150, 'F11', 'Fútbol 11')}`);
+  // --- Fútbol 5 ---
+  s += grupo('F5', 40, 350, 330, 240, `
+    <rect x="40" y="350" width="330" height="240" rx="16" fill="#27302b"/>
+    <rect x="58" y="372" width="294" height="196" rx="6" fill="#1f7f5c"/>
+    <g ${linea}><rect x="70" y="382" width="270" height="176"/><path d="M205 382 V558"/><circle cx="205" cy="470" r="26"/><rect x="70" y="430" width="46" height="80"/><rect x="294" y="430" width="46" height="80"/></g>
+    <rect x="60" y="455" width="10" height="30" fill="#cfd8d3"/><rect x="340" y="455" width="10" height="30" fill="#cfd8d3"/>
+    ${rotulo(205, 462, 'F5', 'Fútbol 5')}`);
+  // --- Pádel ---
+  s += grupo('PAD', 400, 350, 310, 240, `
+    <rect x="400" y="350" width="310" height="240" rx="16" fill="#27302b"/>
+    <rect x="418" y="396" width="274" height="150" rx="6" fill="#1f56a0" stroke="#a7dcef" stroke-width="4"/>
+    <g ${linea}><path d="M555 396 V546" stroke-dasharray="4 3" stroke-width="3"/><path d="M458 396 V546 M652 396 V546 M458 471 H652"/></g>
+    ${rotulo(555, 464, 'PAD', 'Pádel')}`);
+  // --- Edificios ---
+  s += `<g opacity=".92"><rect x="740" y="360" width="220" height="72" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="392" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Vestuarios y sanitarios</text><text x="850" y="410" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Duchas · lockers</text>
+    <rect x="740" y="446" width="220" height="64" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="476" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Cantina y quincho</text><text x="850" y="494" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Consumos a la parcela</text>
+    <rect x="740" y="524" width="220" height="56" rx="10" fill="none" stroke="#4d6157" stroke-dasharray="7 6"/><text x="850" y="557" text-anchor="middle" fill="#9fb4a9" font-size="12">Estacionamiento</text></g>`;
+  return s + '</svg>';
+}
+const leyendaInst = () => `<div class="legend">${['libre', 'ocupada', 'reservada', 'mantenimiento'].map(st => `<span><span class="dot" style="background:${COLORES[st]};width:12px;height:12px"></span>${INST_ESTADO_TXT[st]}</span>`).join('')}</div>`;
+function listaUsos(arr, conFecha) {
+  return arr.length ? `<div class="list">${arr.map(u => `<div class="it" data-a="verUso" data-v="${u.id}" tabindex="0"><span class="small"><b>${conFecha ? fFecha(u.fecha).slice(0, 5) + ' · ' : ''}${u.desde}–${u.hasta}</b> · ${esc(nombreUso(u))}${u.sena && !u.sena.devuelta && !u.sena.aplicada ? ' <span class="sub tiny">(seña ' + sinCentavos(u.sena.importe) + ')</span>' : ''}</span>${pillUso(u.estado)}</div>`).join('')}</div>` : '<p class="sub small">Sin reservas.</p>';
+}
+function panelInst() {
+  const i = UI.selInst ? instalacion(UI.selInst) : null;
+  if (!i) return `<div class="card">${vacio('Ninguna instalación seleccionada', 'Toque la pileta o una cancha del mapa para ver su detalle u operar.')}</div>`;
+  const st = estadoInst(i), I = S.config.inst, h = hoy();
+  const head = `<h3>${esc(i.nombre)} ${pillInst(st)}</h3>`;
+  if (i.mantenimiento) {
+    return `<div class="card detail">${head}<dl><dt>Código</dt><dd><b>${esc(i.id)}</b></dd><dt>Motivo</dt><dd>${esc(i.motivoMant || '—')}</dd></dl>
+      <div class="notice warn mt">Instalación en mantenimiento: no admite reservas ni ventas hasta finalizarlo.</div>
+      <button class="btn block" type="button" data-a="finMantInst" data-v="${i.id}">Finalizar mantenimiento</button></div>`;
+  }
+  const hoyU = usosDe(i.id, h);
+  const prox = S.usos.filter(u => u.inst === i.id && u.tipo !== 'entrada' && u.estado === 'reservada' && u.fecha > h).sort((a, b) => (a.fecha + a.desde).localeCompare(b.fecha + b.desde)).slice(0, 4);
+  const desc = `${I.descSocio} % a socios activos con cuotas al día`;
+  if (i.clase === 'pileta') {
+    const P = I.pileta, usado = aforoUsado(h), ent = S.usos.filter(u => u.inst === 'PIL' && u.tipo === 'entrada' && u.fecha === h && u.estado !== 'cancelada');
+    return `<div class="card detail">${head}<dl>
+      <dt>Aforo de hoy</dt><dd><b>${usado}</b> / ${P.aforo} personas</dd>
+      <dt>Entradas vendidas hoy</dt><dd>${ent.length} · ${money(suma(ent, u => u.calc.total))}</dd>
+      <dt>Entrada adulto</dt><dd>${money(P.entradaAdulto)}</dd>
+      <dt>Entrada menor (hasta ${P.edadMenor} años)</dt><dd>${money(P.entradaMenor)}</dd>
+      <dt>Alquiler por turno</dt><dd>${money(P.alquilerTurno)}</dd>
+      <dt>Incluye</dt><dd>hasta ${P.personasIncl} personas</dd>
+      <dt>Turnos</dt><dd>${P.turnos.map(t => `${t.desde}–${t.hasta}`).join(' · ')}</dd>
+      <dt>Descuento</dt><dd>${esc(desc)}</dd></dl>
+      <div class="bar mt" aria-hidden="true"><i style="width:${Math.min(100, usado / P.aforo * 100)}%"></i></div>
+      <div class="col mt">
+        <button class="btn big block" type="button" data-a="nuevaEntrada">Vender entrada</button>
+        <div class="row"><button class="btn ghost sm" type="button" data-a="nuevoAlquilerPileta">Alquilar la pileta</button><button class="btn ghost sm" type="button" data-a="iniMantInst" data-v="${i.id}">Enviar a mantenimiento</button></div>
+      </div>
+      ${hoyU.length ? `<div class="notice info mt">Hoy la pileta está alquilada de forma privada: las entradas individuales no pueden usarla en ese horario.</div>` : ''}
+      <div class="h3 mt2">Alquileres de hoy</div>${listaUsos(hoyU)}
+      <div class="h3 mt2">Próximos alquileres</div>${listaUsos(prox, true)}</div>`;
+  }
+  const C = I.canchas[i.clase];
+  return `<div class="card detail">${head}<dl>
+    <dt>Precio por hora</dt><dd>${money(C.precioHora)}</dd>
+    <dt>Desde las ${I.nocturnoDesde} (iluminación)</dt><dd>${money(C.precioHora + pct(C.precioHora, I.recargoNocturno))}</dd>
+    <dt>Horario</dt><dd>${I.apertura} a ${I.cierre}</dd>
+    <dt>Duración máxima</dt><dd>${C.maxHoras} h</dd>
+    <dt>Jugadores</dt><dd>hasta ${C.capacidad}</dd>
+    <dt>Descuento</dt><dd>${esc(desc)}</dd></dl>
+    <div class="col mt">
+      <button class="btn big block" type="button" data-a="nuevoUso" data-v="${i.id}">Nueva reserva</button>
+      <div class="row"><button class="btn ghost sm" type="button" data-a="verAgenda">Ver agenda</button><button class="btn ghost sm" type="button" data-a="iniMantInst" data-v="${i.id}">Enviar a mantenimiento</button></div>
+    </div>
+    <div class="h3 mt2">Reservas de hoy</div>${listaUsos(hoyU)}
+    <div class="h3 mt2">Próximas reservas</div>${listaUsos(prox, true)}</div>`;
+}
+function vistaAgenda() {
+  const I = S.config.inst, f = UI.f;
+  const fecha = esFechaISO(f.depFecha) ? f.depFecha : hoy();
+  const esHoy = fecha === hoy(), now = hm(horaActual());
+  const ids = ['F5', 'F11', 'PAD'];
+  const horas = []; for (let m = hm(I.apertura); m < hm(I.cierre); m += 60) horas.push(m);
+  const celda = (iid, m) => {
+    const ins = instalacion(iid), C = I.canchas[ins.clase];
+    if (ins.mantenimiento) return '<td class="slot mant">Mantenimiento</td>';
+    const u = usosDe(iid, fecha).find(x => hm(x.desde) <= m && m < hm(x.hasta));
+    if (u) return `<td class="slot ${u.estado}" data-a="verUso" data-v="${u.id}">${hm(u.desde) === m ? `<b>${esc(nombreUso(u))}</b> <span class="sub tiny">${u.horas} h</span><div class="mt-s">${pillUso(u.estado)}</div>` : '<span class="sub tiny">↳ continúa</span>'}</td>`;
+    if (fecha < hoy() || (esHoy && m + 60 <= now)) return '<td class="slot past">—</td>';
+    const noct = m >= hm(I.nocturnoDesde);
+    return `<td class="slot free"><button class="slotbtn" type="button" data-a="nuevoUsoSlot" data-v="${iid}|${fecha}|${deMin(m)}">Libre · ${sinCentavos(C.precioHora + (noct ? pct(C.precioHora, I.recargoNocturno) : 0))}${noct ? ' <span class="tiny">luz</span>' : ''}</button></td>`;
+  };
+  const P = I.pileta, pil = instalacion('PIL');
+  const celdaTurno = t => {
+    if (pil.mantenimiento) return '<td class="slot mant">Mantenimiento</td>';
+    const u = usosDe('PIL', fecha).find(x => x.turno === t.id);
+    if (u) return `<td class="slot ${u.estado}" data-a="verUso" data-v="${u.id}"><b>${esc(nombreUso(u))}</b> <span class="sub tiny">${u.personas} pers.</span><div class="mt-s">${pillUso(u.estado)}</div></td>`;
+    if (fecha < hoy() || (esHoy && hm(t.hasta) <= now)) return '<td class="slot past">—</td>';
+    return `<td class="slot free"><button class="slotbtn" type="button" data-a="nuevoAlquilerFecha" data-v="${fecha}|${t.id}">Libre · ${sinCentavos(P.alquilerTurno)}</button></td>`;
+  };
+  const entDia = S.usos.filter(u => u.inst === 'PIL' && u.tipo === 'entrada' && u.fecha === fecha && u.estado !== 'cancelada');
+  return `<div class="filters">
+      <button class="btn ghost sm" type="button" data-a="depDia" data-v="-1" aria-label="Día anterior">‹ Anterior</button>
+      <div class="field"><label for="fDepF">Fecha</label><input id="fDepF" type="date" data-f="depFecha" value="${fecha}"></div>
+      <button class="btn ghost sm" type="button" data-a="depDia" data-v="1" aria-label="Día siguiente">Siguiente ›</button>
+      <button class="btn ghost sm" type="button" data-a="depDia" data-v="0">Hoy</button>
+      <span class="sub small" style="align-self:center">${esc(fLarga(fecha))}${temporadaDe(fecha, S.config) ? ' · <b>temporada alta</b>' : ''}</span>
+    </div>
+    <div class="card mb"><h3>Canchas — reservas por hora</h3><div class="tw"><table class="agenda"><thead><tr><th>Hora</th>${ids.map(id => `<th>${esc(instalacion(id).nombre.replace('Cancha de ', ''))}</th>`).join('')}</tr></thead>
+      <tbody>${horas.map(m => `<tr><td class="hr0">${deMin(m)}</td>${ids.map(id => celda(id, m)).join('')}</tr>`).join('')}</tbody></table></div>
+      <p class="sub small mt">Desde las ${I.nocturnoDesde} se aplica +${I.recargoNocturno} % por iluminación. Toque un horario libre para reservar o una reserva para verla, cobrarla o cancelarla.</p></div>
+    <div class="card"><h3>Pileta — alquiler por turno <span class="sub small" style="text-transform:none;letter-spacing:0">Entradas individuales ese día: ${suma(entDia, u => u.personas)} / ${P.aforo}</span></h3>
+      <div class="tw"><table class="agenda"><thead><tr>${P.turnos.map(t => `<th>${esc(t.nombre)} · ${t.desde}–${t.hasta}</th>`).join('')}</tr></thead><tbody><tr>${P.turnos.map(celdaTurno).join('')}</tr></tbody></table></div></div>`;
+}
+function vistaMovsInst() {
+  const f = UI.f, q = f.depQ.toLowerCase();
+  const lista = S.usos.filter(u => (!f.depInst || u.inst === f.depInst) && (!f.depEstado || u.estado === f.depEstado) && (!q || `${u.id} ${nombreUso(u)} ${instalacion(u.inst).nombre} ${USO_TIPO_TXT[u.tipo]}`.toLowerCase().includes(q)))
+    .slice().sort((a, b) => (b.fecha + (b.desde || '')).localeCompare(a.fecha + (a.desde || '')) || b.id.localeCompare(a.id));
+  const vigentes = lista.filter(u => u.estado !== 'cancelada');
+  return `<div class="filters">
+      <div class="field" style="flex:1;min-width:200px"><label for="fDepQ">Buscar</label><input id="fDepQ" data-f="depQ" value="${esc(f.depQ)}" placeholder="Código, cliente o instalación"></div>
+      <div class="field"><label for="fDepI">Instalación</label><select id="fDepI" data-f="depInst">${opciones([['', 'Todas'], ...S.instalaciones.map(i => [i.id, i.nombre])], f.depInst)}</select></div>
+      <div class="field"><label for="fDepE">Estado</label><select id="fDepE" data-f="depEstado">${opciones([['', 'Todos'], ...Object.entries(USO_ESTADO_TXT)], f.depEstado)}</select></div>
+      <button class="btn" type="button" data-a="nuevoUsoGlobal">+ Reserva o venta</button>
+    </div>
+    <div class="card"><div class="tw"><table><thead><tr><th>Código</th><th>Fecha</th><th>Horario</th><th>Instalación</th><th>Tipo</th><th>Cliente</th><th class="num">Pers. / h</th><th class="num">Total</th><th class="num">Seña</th><th>Estado</th><th></th></tr></thead>
+    <tbody>${lista.map(u => `<tr class="click" data-a="verUso" data-v="${u.id}"><td class="mono">${u.id}</td><td>${fFecha(u.fecha)}</td><td>${u.desde ? `${u.desde}–${u.hasta}` : '<span class="sub">todo el día</span>'}</td><td><b>${esc(instalacion(u.inst).nombre.replace('Cancha de ', ''))}</b></td><td class="small">${USO_TIPO_TXT[u.tipo]}</td><td>${esc(nombreUso(u))}${u.calc.descuento ? ' <span class="pill ok tiny">socio</span>' : ''}</td><td class="num">${u.tipo === 'cancha' ? u.horas + ' h' : u.personas}</td><td class="num">${money(u.calc.total)}</td><td class="num">${u.sena && !u.sena.devuelta ? money(u.sena.importe) : '—'}</td><td>${pillUso(u.estado)}</td>
+      <td>${u.estado === 'reservada' && u.fecha <= hoy() ? `<button class="btn xs" type="button" data-a="cobrarUso" data-v="${u.id}">Cobrar</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="11">${vacio('Sin movimientos', 'Cambie los filtros o registre una reserva o venta.')}</td></tr>`}</tbody>
+    ${vigentes.length ? `<tfoot><tr><td colspan="7">Totales (${vigentes.length})</td><td class="num">${money(suma(vigentes, u => u.calc.total))}</td><td class="num">${money(suma(vigentes, senaVigente))}</td><td colspan="2"></td></tr></tfoot>` : ''}</table></div></div>`;
+}
+VISTAS.deportes = () => {
+  const tab = UI.tabDep, m = metricasInst();
+  const tabs = [['mapa', 'Mapa'], ['agenda', 'Agenda de canchas'], ['movs', 'Reservas y ventas']];
+  const body = tab === 'agenda' ? vistaAgenda() : tab === 'movs' ? vistaMovsInst() : `<div class="mapwrap">
+    <div class="map">${svgInst()}${leyendaInst()}
+      <p class="sub small" style="padding:4px 6px">Seleccione la pileta o una cancha. Amarillo: tiene reservas más tarde hoy · Rojo: en uso ahora. Las reservas se cobran el día de uso (en caja o cargadas a la parcela).</p></div>
+    <aside class="side" aria-live="polite">${panelInst()}</aside></div>`;
+  return `<div class="kpis">
+    ${kpi('Facturado hoy', money(m.ingHoy), `${m.nHoy} operación(es) cobrada(s)`, 'acc')}
+    ${kpi('Aforo de la pileta hoy', `${m.aforoHoy} / ${m.aforo}`, 'Entradas individuales vendidas')}
+    ${kpi('Reservas de hoy', m.reservasHoy, 'Canchas y alquiler de pileta')}
+    ${kpi('Pendientes de cobro', m.pendientes.length, `Señas en poder del club: ${sinCentavos(senasPendientesUsos())}`, m.pendientes.length ? 'warn' : '')}
+    ${kpi('Cargado a parcelas', money(m.cargadoAParcelas), 'Se cobra en el check-out')}
+  </div>
+  <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" type="button" role="tab" aria-selected="${tab === k}" data-a="tabDep" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
+};
+function tablaCalculoUso(c, extra) {
+  if (!c || !c.ok) return '';
+  let h = `<table class="calc"><tbody>${c.lineas.map((l, i) => `<tr><td class="ix">${i + 1}</td><td>${l.txt}</td><td class="num">${money(l.imp)}</td></tr>`).join('')}
+    <tr><td class="ix"></td><td class="sub">Subtotal</td><td class="num sub">${money(c.subtotal)}</td></tr>
+    <tr class="${c.descuento ? 'neg' : ''}"><td class="ix">${c.lineas.length + 1}</td><td>Descuento de socio <span class="sub small">(${c.socio.elegible ? c.descSocio + ' % · ' : ''}${esc(c.socio.motivo)})</span></td><td class="num">${c.descuento ? '− ' + money(c.descuento) : money(0)}</td></tr>
+    <tr class="tot"><td class="ix"></td><td>Total</td><td class="num">${money(c.total)}</td></tr>`;
+  if (extra) {
+    h += `<tr class="neg"><td class="ix"></td><td>Seña ya abonada</td><td class="num">− ${money(extra.sena)}</td></tr><tr class="tot"><td class="ix"></td><td>Saldo a cobrar</td><td class="num" style="color:${extra.saldo > 0 ? 'var(--warn)' : 'var(--ok)'}">${money(extra.saldo)}</td></tr>`;
+  }
+  return h + '</tbody></table>';
+}
+/** Alta de entrada, alquiler de pileta o reserva de cancha (formulario con cálculo en vivo). */
+function modalUso(o = {}) {
+  const disponibles = S.instalaciones.filter(i => !i.mantenimiento);
+  if (!disponibles.length) return toast('Todas las instalaciones están en mantenimiento.', 'warn');
+  const pedida = o.inst ? instalacion(o.inst) : null;
+  if (pedida && pedida.mantenimiento) return toast(`${pedida.nombre} está en mantenimiento.`, 'error');
+  const iSel = pedida ? pedida.id : (UI.selInst && disponibles.some(i => i.id === UI.selInst) ? UI.selInst : disponibles[0].id);
+  const I = S.config.inst;
+  const horasOpc = []; for (let m = hm(I.apertura); m < hm(I.cierre); m += 60) horasOpc.push([deMin(m), deMin(m)]);
+  const desde0 = o.desde || (() => { const n = hm(horaActual()); const sig = Math.max(hm(I.apertura), Math.ceil((n + 1) / 60) * 60); return deMin(Math.min(sig, hm(I.cierre) - 60)); })();
+  const cliOpc = [['', 'Visitante / sin registrar'], ...S.clientes.map(c => { const el = elegibilidadSocio(c); return [c.id, `${nombreCliente(c)} — ${el.ok ? 'socio activo ✓ descuento' : c.esSocio ? (el.vencida ? 'socio · cuota vencida' : 'socio ' + c.estadoSocio.toLowerCase()) : 'no socio'}`]; })];
+  const activas = S.estadias.filter(e => e.estado === 'activa');
+  abrirModal({
+    titulo: o.inst && instalacion(o.inst).clase === 'pileta' ? (o.tipo === 'alquiler' ? 'Alquilar la pileta' : 'Entrada a la pileta') : 'Nueva reserva o venta · pileta y canchas', ancho: 'wide',
+    cuerpo: `<form id="fUso" novalidate><div class="grid12">
+      <div class="s7">
+        <div id="errUso"></div>
+        <div class="field"><label>Instalación *</label><select name="inst">${opciones(disponibles.map(i => [i.id, i.nombre]), iSel)}</select></div>
+        <div data-sec="pileta"><div class="seg" role="radiogroup" aria-label="Modalidad"><label><input type="radio" name="tipo" value="entrada" ${o.tipo === 'alquiler' ? '' : 'checked'}> Entrada individual</label><label><input type="radio" name="tipo" value="alquiler" ${o.tipo === 'alquiler' ? 'checked' : ''}> Alquilar la pileta</label></div></div>
+        <div class="field"><label>Cliente</label><select name="clienteId">${opciones(cliOpc, '')}</select></div>
+        <div class="field" data-sec="nombre"><label>Nombre de quien reserva / visitante</label><input name="nombre" maxlength="60" autocomplete="off" placeholder="Visitante del día"></div>
+        <div class="g2">
+          <div class="field"><label>Fecha *</label><input type="date" name="fecha" value="${o.fecha || hoy()}" min="${hoy()}"></div>
+          <div class="field" data-sec="cancha"><label>Hora de inicio *</label><select name="desde">${opciones(horasOpc, desde0)}</select></div>
+          <div class="field" data-sec="cancha"><label>Duración *</label><select name="horas"></select></div>
+          <div class="field" data-sec="alquiler"><label>Turno *</label><select name="turno">${opciones(I.pileta.turnos.map(t => [t.id, `${t.nombre} ${t.desde}–${t.hasta}`]), o.turno || 'TA')}</select></div>
+          <div class="field" data-sec="alquiler"><label>Personas *</label><input type="number" name="personas" min="1" max="${I.pileta.aforoAlquiler}" step="1" value="${I.pileta.personasIncl}"></div>
+          <div class="field" data-sec="entrada"><label>Adultos</label><input type="number" name="adultos" min="0" max="60" step="1" value="2"></div>
+          <div class="field" data-sec="entrada"><label>Menores de hasta ${I.pileta.edadMenor} años</label><input type="number" name="menores" min="0" max="60" step="1" value="0"></div>
+        </div>
+        <div data-sec="entrada" class="card" style="padding:14px;margin-bottom:12px"><div class="g2">
+          <div class="field" style="margin:0"><label>Cobro *</label><select name="cobroMedio">${opciones([['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['parcela', 'Cargar a la cuenta de una parcela']], 'efectivo')}</select></div>
+          <div class="field" style="margin:0" data-sec="parcela"><label>Estadía activa *</label><select name="estadiaId"><option value="">Seleccione…</option>${opciones(activas.map(e => [e.id, `${e.unidadId} · ${nombreCliente(cliente(e.clienteId))} (${e.id})`]), '')}</select></div></div>
+          <p class="sub small mt" data-sec="parcela">El importe se suma al saldo de la estadía y se cobra en el check-out. El cliente pasa a ser el titular de la parcela.</p></div>
+        <div data-sec="reserva" class="card" style="padding:14px;margin-bottom:12px"><div class="g2">
+          <div class="field" style="margin:0"><label>Seña (ARS, opcional)</label><input name="senaImporte" inputmode="decimal" placeholder="0,00"></div>
+          <div class="field" style="margin:0"><label>Medio de la seña</label><select name="senaMedio">${opciones(Object.entries(MEDIOS).map(([k, m]) => [k, m.nombre]), 'transferencia')}</select></div></div>
+          <p class="sub small mt" id="sugSena"></p></div>
+        <div class="field"><label>Notas</label><input name="notas" maxlength="160"></div>
+      </div>
+      <div class="s5"><div class="card" style="background:var(--panel2)"><h3>Cálculo automático</h3><div id="prevUso"></div></div></div>
+    </div></form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fUso" id="btnUso">Confirmar</button>`,
+    onBind: d => {
+      const f = d.querySelector('#fUso');
+      const leer = () => {
+        const fd = formData(f), ins = instalacion(fd.inst);
+        const esPil = !!ins && ins.clase === 'pileta';
+        const tipo = esPil ? (fd.tipo === 'alquiler' ? 'alquiler' : 'entrada') : 'cancha';
+        const parc = tipo === 'entrada' && fd.cobroMedio === 'parcela';
+        const est = parc ? estadia(fd.estadiaId) : null;
+        const clienteId = parc && est ? est.clienteId : (fd.clienteId || '');
+        const senaImp = tipo !== 'entrada' && fd.senaImporte ? aCentavos(fd.senaImporte) : 0;
+        return {
+          fd, ins, tipo, parc, est, senaImp, senaInvalida: tipo !== 'entrada' && fd.senaImporte && !(senaImp > 0),
+          datos: { inst: fd.inst, tipo, clienteId, nombre: fd.nombre, fecha: tipo === 'entrada' ? hoy() : fd.fecha, desde: fd.desde, horas: fd.horas, turno: fd.turno, personas: fd.personas, adultos: fd.adultos, menores: fd.menores, notas: fd.notas }
+        };
+      };
+      const actualizar = () => {
+        const L = leer(), { ins, tipo, datos } = L;
+        const show = (sec, on) => d.querySelectorAll(`[data-sec="${sec}"]`).forEach(x => { x.style.display = on ? '' : 'none'; });
+        show('pileta', !!ins && ins.clase === 'pileta'); show('cancha', tipo === 'cancha'); show('alquiler', tipo === 'alquiler'); show('entrada', tipo === 'entrada');
+        show('reserva', tipo !== 'entrada'); show('parcela', L.parc); show('nombre', !datos.clienteId);
+        const fechaIn = f.querySelector('[name=fecha]'); fechaIn.disabled = tipo === 'entrada'; if (tipo === 'entrada') fechaIn.value = hoy();
+        const cliSel = f.querySelector('[name=clienteId]'); cliSel.disabled = L.parc && !!L.est; if (L.parc && L.est) cliSel.value = L.est.clienteId;
+        const hSel = f.querySelector('[name=horas]');
+        if (tipo === 'cancha' && ins) { const mx = I.canchas[ins.clase].maxHoras, prev = hSel.value || '1'; hSel.innerHTML = opciones(Array.from({ length: mx }, (_, k) => [String(k + 1), `${k + 1} hora${k ? 's' : ''}`]), +prev <= mx ? prev : '1'); datos.horas = hSel.value; }
+        const calc = calcularUso(datos);
+        const errs = ins ? validarUso(datos) : ['Seleccione una instalación.'];
+        if (L.senaInvalida) errs.push('El importe de la seña no es válido.');
+        if (calc.ok && L.senaImp > calc.total) errs.push(`La seña no puede superar el total (${money(calc.total)}).`);
+        if (tipo === 'entrada' && L.parc && !L.est) errs.push('Seleccione la estadía a la que se cargará.');
+        const btn = d.querySelector('#btnUso');
+        btn.textContent = tipo === 'entrada' ? (L.parc ? 'Cargar entrada a la parcela' : 'Cobrar y registrar entrada') : 'Confirmar reserva';
+        let h = '';
+        const c = datos.clienteId ? cliente(datos.clienteId) : null;
+        if (c) { const el = elegibilidadSocio(c); h += el.ok ? `<div class="notice ok">${esc(nombreCliente(c))}: socio activo con cuotas al día → descuento ${I.descSocio} %.</div>` : el.vencida ? `<div class="notice warn">⚠ ${esc(nombreCliente(c))} tiene cuotas vencidas (${fFecha(c.cuotaVence)}). No se aplica el beneficio de socio.</div>` : `<div class="notice info">${esc(el.motivo)}: sin descuento.</div>`; }
+        if (tipo === 'entrada') h += `<div class="notice info">Aforo de hoy: ${aforoUsado(hoy())} de ${I.pileta.aforo} lugares vendidos.</div>`;
+        if (tipo === 'entrada' && usosDe('PIL', hoy()).length) h += `<div class="notice warn">Hoy hay un alquiler privado de la pileta (${usosDe('PIL', hoy()).map(u => u.desde + '–' + u.hasta).join(', ')}): las entradas no pueden usarla en ese horario.</div>`;
+        if (calc.ok && calc.alta) h += `<div class="notice warn">Fecha en temporada alta: se aplica el recargo de la pileta.</div>`;
+        if (errs.length) h += `<div class="errors"><ul>${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+        h += calc.ok ? tablaCalculoUso(calc) : (errs.length ? '' : '<p class="sub small">Complete los datos para calcular el precio.</p>');
+        d.querySelector('#prevUso').innerHTML = h;
+        d.querySelector('#sugSena').textContent = calc.ok && I.senaPct ? `Seña sugerida (${I.senaPct} %): ${money(pct(calc.total, I.senaPct))}. Se aplica al cobrar el día de uso; si se cancela, se devuelve.` : '';
+        btn.disabled = errs.length > 0 || !calc.ok;
+        return errs;
+      };
+      f.addEventListener('input', actualizar);
+      f.addEventListener('change', actualizar);
+      actualizar();
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const errs = actualizar();
+        if (errs.length) return mostrarErrores(d.querySelector('#errUso'), errs);
+        const L = leer();
+        const btn = d.querySelector('#btnUso'); btn.disabled = true;
+        const cobro = L.tipo === 'entrada' ? (L.parc ? { modo: 'imputar', estadiaId: L.est.id } : { modo: 'pago', medio: L.fd.cobroMedio }) : null;
+        const sena = L.tipo !== 'entrada' && L.senaImp > 0 ? { importe: L.senaImp, medio: L.fd.senaMedio } : null;
+        const r = ejecutar(() => crearUso({ ...L.datos, cobro, sena }), u => u.tipo === 'entrada' ? `Entrada registrada (${u.id}): ${money(u.calc.total)}${u.estado === 'imputada' ? ' cargados a ' + u.estadiaId : ''}.` : `Reserva ${u.id} registrada: ${instalacion(u.inst).nombre} ${fFecha(u.fecha)} ${u.desde}–${u.hasta}.`);
+        if (r) { cerrarModal(); UI.selInst = r.inst; render(); }
+        else { btn.disabled = false; actualizar(); }
+      });
+    }
+  });
+}
+function modalVerUso(id) {
+  if (!uso(id)) return;
+  const pintar = () => {
+    const u = uso(id), ins = instalacion(u.inst), sena = senaVigente(u);
+    const infoCobro = u.cobro ? `<div class="notice ${u.estado === 'imputada' ? 'info' : 'ok'} mt">${u.estado === 'imputada' ? `Cargado a la estadía <b>${u.cobro.estadiaId}</b> (${money(u.cobro.importe)}) — ${u.cobro.sena ? 'seña ' + money(u.cobro.sena) + ' aplicada. ' : ''}Se cobra en el check-out.` : `Cobrado el ${fFechaHora(u.cobro.fecha)}${u.cobro.importe ? ' · ' + MEDIOS[u.cobro.medio].nombre + ' ' + money(u.cobro.importe) : ''}${u.cobro.sena ? ' · seña ' + money(u.cobro.sena) + ' aplicada' : ''}.`}<div class="small mt">Asiento ${u.cobro.asientoId} · operación ${u.cobro.op}</div></div>` : '';
+    return `<div class="grid12">
+      <div class="card s5 detail"><h3>Datos ${pillUso(u.estado)}</h3><dl>
+        <dt>Código</dt><dd class="mono">${u.id}</dd><dt>Instalación</dt><dd><b>${esc(ins.nombre)}</b></dd><dt>Tipo</dt><dd>${USO_TIPO_TXT[u.tipo]}</dd>
+        <dt>Fecha</dt><dd>${fFecha(u.fecha)}</dd>
+        ${u.tipo === 'entrada' ? `<dt>Personas</dt><dd>${u.adultos} adulto(s) · ${u.menores} menor(es)</dd>` : `<dt>Horario</dt><dd>${u.desde} – ${u.hasta}${u.horas ? ` (${u.horas} h)` : ''}</dd>${u.tipo === 'alquiler' ? `<dt>Personas</dt><dd>${u.personas}</dd>` : ''}`}
+        <dt>Cliente</dt><dd>${esc(nombreUso(u))}</dd><dt>Creada</dt><dd>${fFechaHora(u.creada)}</dd><dt>Origen</dt><dd>${pillOrigen(u.origen)}</dd></dl>
+        ${u.notas ? `<p class="sub small mt">${esc(u.notas)}</p>` : ''}${infoCobro}
+        ${u.estado === 'cancelada' ? `<div class="notice bad mt">Cancelada el ${fFechaHora(u.cancelada)}${u.sena ? ' · seña devuelta (' + money(u.sena.importe) + ')' : ''}.</div>` : ''}
+      </div>
+      <div class="card s7"><h3>Detalle económico</h3>${tablaCalculoUso(u.calc, u.estado === 'reservada' ? { sena, saldo: u.calc.total - sena } : null)}
+        ${u.estado === 'reservada' ? `<p class="sub small mt">${sena ? `Seña de ${money(sena)} recibida (${MEDIOS[u.sena.medio].nombre}), registrada en «Anticipos de clientes».` : 'Sin seña registrada.'} El ingreso se reconoce al cobrar el día de uso.</p>` : ''}</div>
+    </div>`;
+  };
+  const pie = () => {
+    const u = uso(id), b = ['<button class="btn ghost" type="button" data-close>Cerrar</button>'];
+    if (u.estado === 'reservada') {
+      b.unshift(`<button class="btn danger left" type="button" data-a="cancelarUso" data-v="${u.id}">Cancelar reserva</button>`);
+      if (!(u.sena && !u.sena.devuelta)) b.push(`<button class="btn ghost" type="button" data-a="senaUso" data-v="${u.id}">Registrar seña</button>`);
+      b.push(u.fecha <= hoy() ? `<button class="btn" type="button" data-a="cobrarUso" data-v="${u.id}">Cobrar</button>` : `<button class="btn" type="button" disabled title="El cobro final se registra el día de uso">Cobrar el ${fFecha(u.fecha).slice(0, 5)}</button>`);
+    }
+    if (u.estado === 'imputada') b.push(`<button class="btn ghost" type="button" data-a="verEstadia" data-v="${u.cobro.estadiaId}">Ver cuenta de la parcela</button>`);
+    return b.join('');
+  };
+  abrirModal({ titulo: `${USO_TIPO_TXT[uso(id).tipo]} ${id}`, ancho: 'wide', cuerpo: pintar(), pie: pie() });
+  MODAL.refresh = () => { const d = $('#dlg'); if (!uso(id)) return; d.querySelector('.dlg-b').innerHTML = pintar(); d.querySelector('.dlg-f').innerHTML = pie(); };
+}
+function modalCobroUso(id) {
+  const u = uso(id); if (!u) return;
+  const sena = senaVigente(u), due = u.calc.total - sena;
+  const activas = S.estadias.filter(e => e.estado === 'activa');
+  abrirModal({
+    titulo: `Cobrar ${id}`, ancho: 'narrow',
+    cuerpo: `<form id="fCobUso" novalidate><div id="errCobUso"></div>
+      <div class="detail mb"><dl><dt>${esc(instalacion(u.inst).nombre)}</dt><dd>${fFecha(u.fecha)} ${u.desde ? u.desde + '–' + u.hasta : ''}</dd><dt>Cliente</dt><dd>${esc(nombreUso(u))}</dd><dt>Total</dt><dd>${money(u.calc.total)}</dd><dt>Seña abonada</dt><dd>− ${money(sena)}</dd><dt>Saldo a cobrar</dt><dd class="big">${money(due)}</dd></dl></div>
+      ${due > 0 ? `<div class="field"><label>Forma de cobro *</label><select name="medio">${opciones([['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ...(activas.length ? [['parcela', 'Cargar a la cuenta de una parcela']] : [])], 'efectivo')}</select></div>
+      <div class="field" data-sec="parcela" style="display:none"><label>Estadía activa *</label><select name="estadiaId"><option value="">Seleccione…</option>${opciones(activas.map(e => [e.id, `${e.unidadId} · ${nombreCliente(cliente(e.clienteId))} (${e.id})`]), '')}</select></div>` : '<div class="notice ok">La seña cubre el total: solo se reconoce el ingreso.</div>'}
+      <p class="sub small">Asiento: Debe ${due > 0 ? 'Caja/Banco (o Créditos si se carga a la parcela)' : ''}${sena ? ' + Anticipos de clientes' : ''}${u.calc.descuento ? ' + Descuentos' : ''} · Haber ${instalacion(u.inst).clase === 'pileta' ? 'Ingresos por pileta' : 'Ingresos por canchas'}.</p></form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fCobUso">Registrar cobro</button>`,
+    onBind: d => {
+      const f = d.querySelector('#fCobUso'), med = f.querySelector('[name=medio]');
+      if (med) med.addEventListener('change', () => { f.querySelector('[data-sec=parcela]').style.display = med.value === 'parcela' ? '' : 'none'; });
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const fd = formData(f), parc = fd.medio === 'parcela';
+        if (parc && !fd.estadiaId) return mostrarErrores(d.querySelector('#errCobUso'), ['Seleccione la estadía a la que se cargará.']);
+        d.querySelector('.dlg-f [type=submit]').disabled = true;
+        const r = ejecutar(() => cobrarUso(id, parc ? { modo: 'imputar', estadiaId: fd.estadiaId } : { modo: 'pago', medio: fd.medio }), x => `${x.id} cobrada (${money(x.calc.total)})${x.estado === 'imputada' ? ' y cargada a ' + x.estadiaId : ''}.`);
+        if (r) modalVerUso(id); else d.querySelector('.dlg-f [type=submit]').disabled = false;
+      });
+    }
+  });
+}
+function modalSenaUso(id) {
+  const u = uso(id); if (!u) return;
+  abrirModal({
+    titulo: `Registrar seña · ${id}`, ancho: 'narrow',
+    cuerpo: `<form id="fSenaUso" novalidate><div id="errSenaUso"></div>
+      <div class="detail mb"><dl><dt>Total de la reserva</dt><dd>${money(u.calc.total)}</dd><dt>Seña sugerida (${S.config.inst.senaPct} %)</dt><dd>${money(pct(u.calc.total, S.config.inst.senaPct))}</dd></dl></div>
+      <div class="field"><label>Importe (ARS) *</label><input name="importe" inputmode="decimal" value="${aPesosInput(pct(u.calc.total, S.config.inst.senaPct)).replace('.', ',')}"></div>
+      <div class="field"><label>Medio *</label><select name="medio">${opciones(Object.entries(MEDIOS).map(([k, m]) => [k, m.nombre]), 'transferencia')}</select></div>
+      <p class="sub small">Asiento: Debe Caja/Banco · Haber Anticipos de clientes. Se aplica al cobrar el día de uso.</p></form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fSenaUso">Registrar seña</button>`,
+    onBind: d => {
+      const f = d.querySelector('#fSenaUso');
+      f.addEventListener('submit', ev => {
+        ev.preventDefault();
+        const fd = formData(f), imp = aCentavos(fd.importe);
+        if (!(imp > 0)) return mostrarErrores(d.querySelector('#errSenaUso'), ['Ingrese un importe válido mayor a cero.']);
+        d.querySelector('.dlg-f [type=submit]').disabled = true;
+        const r = ejecutar(() => registrarSena(id, imp, fd.medio), x => `Seña de ${money(x.sena.importe)} registrada en ${x.id}.`);
+        if (r) modalVerUso(id); else d.querySelector('.dlg-f [type=submit]').disabled = false;
+      });
+    }
+  });
+}
+
+/* =====================================================================
    13. CAJA Y CONTABILIDAD (vista)
    ===================================================================== */
 function asientosFiltrados() {
@@ -2177,9 +2980,11 @@ VISTAS.caja = () => {
   const liqPend = suma(S.liquidaciones.filter(l => l.estado !== 'Pagada'), l => l.importeProp);
   const ctrl = [
     ['Créditos por cobrar = Σ saldos de estadías devengadas', sc('CRED').deudor, sumaSaldos],
-    ['Anticipos de clientes = Σ anticipos sin aplicar', sc('ANT').acreedor, antPend],
+    ['Anticipos de clientes = Σ anticipos de estadías + señas de pileta y canchas sin aplicar', sc('ANT').acreedor, antPend + senasPendientesUsos()],
     ['Cuentas por pagar a propietarios = Σ liquidaciones pendientes', sc('PROP').acreedor, liqPend],
-    ['Ingresos por gastronomía = Σ tickets cerrados', sc('ING_GAS').acreedor, suma(S.tickets.filter(t => t.estado === 'pagado' || t.estado === 'imputado'), totalTicket)]
+    ['Ingresos por gastronomía = Σ tickets cerrados', sc('ING_GAS').acreedor, suma(S.tickets.filter(t => t.estado === 'pagado' || t.estado === 'imputado'), totalTicket)],
+    ['Ingresos por pileta y canchas = Σ entradas y reservas cobradas (bruto)', sc('ING_PIL').acreedor + sc('ING_CAN').acreedor, suma(S.usos.filter(usoCobrado), u => u.calc.subtotal)],
+    ['Descuentos de pileta y canchas = Σ descuentos de socio aplicados', sc('DESC_INS').deudor, suma(S.usos.filter(usoCobrado), u => u.calc.descuento)]
   ];
   const tabs = [['diario', 'Libro diario'], ['balance', 'Sumas y saldos'], ['tesoreria', 'Caja y bancos'], ['politica', 'Política contable']];
   let body = '';
@@ -2219,6 +3024,7 @@ VISTAS.caja = () => {
       <p><b>Modelo de reconocimiento bruto, aplicado de forma consistente.</b> La estadía se registra por su importe total en «Ingresos por estadía» al realizar el check-in (asiento A). El descuento de socio se registra separado en «Descuentos otorgados».</p>
       <p><b>Unidades de terceros:</b> al cerrar la estadía se reclasifica la porción del propietario: Debe «Ingresos por estadía» / Haber «Cuentas por pagar a propietarios» (asiento F). El ingreso que permanece es la comisión del club; la obligación con el propietario queda identificada hasta su pago (Debe Propietarios / Haber Caja o Banco).</p>
       <p><b>Consumos:</b> imputados a una estadía → Debe Créditos / Haber Ingresos por gastronomía (B). Pagados directamente → Debe Caja o Banco / Haber Ingresos por gastronomía (D). Nunca se cobran dos veces.</p>
+      <p><b>Pileta y canchas:</b> el ingreso se reconoce al cobrar el uso (entrada vendida o reserva del día): Debe Caja/Banco (o Créditos si se carga a la parcela) + Anticipos de clientes (seña) + Descuentos de pileta y canchas / Haber Ingresos por pileta o por canchas (G). La seña de una reserva va a «Anticipos de clientes» (H) y se devuelve si la reserva se cancela. Un uso cargado a una parcela suma un cargo a la estadía y se cobra en el check-out, igual que un consumo gastronómico.</p>
       <p><b>Cobros:</b> Debe Caja (efectivo) o Banco (transferencia) / Haber Créditos (C). Los anticipos de reservas van a «Anticipos de clientes» (E) y se aplican contra Créditos al hacer el check-in, sin duplicar ingresos ni cobros. Si se cancela una reserva, el anticipo se devuelve.</p>
       <p><b>Validación:</b> cada asiento se verifica antes de guardarse con importes enteros en centavos; la tolerancia de redondeo es ${APP.toleranciaCentavos} centavos. Las operaciones son atómicas: si una validación falla, no queda ningún cambio parcial.</p>
       <p class="sub">Alcance: simulación para validar procesos. No es un sistema contable certificado ni garantiza el cumplimiento de normas fiscales argentinas.</p></div></div>`;
@@ -2226,7 +3032,7 @@ VISTAS.caja = () => {
   return `<div class="kpis">
     ${kpi('Caja', money(sc('CAJA').deudor), 'Efectivo')}${kpi('Banco', money(sc('BANCO').deudor), 'Transferencias')}
     ${kpi('Créditos por cobrar', money(sc('CRED').deudor), 'Huéspedes', 'warn')}${kpi('Anticipos de clientes', money(sc('ANT').acreedor), 'Pasivo')}
-    ${kpi('A pagar a propietarios', money(sc('PROP').acreedor), 'Pasivo')}${kpi('Asientos', S.asientos.length, S.asientos.every(a => suma(a.lineas, l => l.debe) === suma(a.lineas, l => l.haber)) ? 'Todos balanceados' : 'Hay descuadres', 'acc')}
+    ${kpi('A pagar a propietarios', money(sc('PROP').acreedor), 'Pasivo')}${kpi('Pileta y canchas', money(sc('ING_PIL').acreedor + sc('ING_CAN').acreedor - sc('DESC_INS').deudor), 'Ingresos netos de descuentos', 'acc')}${kpi('Asientos', S.asientos.length, S.asientos.every(a => suma(a.lineas, l => l.debe) === suma(a.lineas, l => l.haber)) ? 'Todos balanceados' : 'Hay descuadres', 'acc')}
   </div>
   <div class="card mb"><h3>Controles de integridad (libro vs. operaciones)</h3><div class="tw"><table><tbody>${ctrl.map(c => `<tr><td class="small">${c[0]}</td><td class="num">${money(c[1])}</td><td class="num">${money(c[2])}</td><td>${c[1] === c[2] ? '<span class="pill ok">✓ Coincide</span>' : '<span class="pill bad">✕ Difiere</span>'}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" type="button" role="tab" aria-selected="${tab === k}" data-a="tabCaja" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
@@ -2241,7 +3047,7 @@ function barras(items, total) {
 }
 VISTAS.reportes = () => {
   const tab = UI.tabReportes, f = UI.f;
-  const tabs = [['estadias', 'Estadías'], ['area', 'Consumos por área'], ['parcela', 'Consumos por parcela'], ['productos', 'Ventas por producto'], ['saldos', 'Saldos pendientes'], ['liquidaciones', 'Liquidaciones'], ['asientos', 'Asientos contables']];
+  const tabs = [['estadias', 'Estadías'], ['area', 'Consumos por área'], ['parcela', 'Consumos por parcela'], ['productos', 'Ventas por producto'], ['instalaciones', 'Pileta y canchas'], ['saldos', 'Saldos pendientes'], ['liquidaciones', 'Liquidaciones'], ['asientos', 'Asientos contables']];
   const cerrados = S.tickets.filter(t => (t.estado === 'pagado' || t.estado === 'imputado') && enRango(t.cierre.fecha) && (!f.repArea || t.area === f.repArea));
   let body = '', filtrosExtra = '';
   if (tab === 'estadias') {
@@ -2266,6 +3072,20 @@ VISTAS.reportes = () => {
     cerrados.forEach(t => t.lineas.forEach(l => { const m = map[l.productoId] || (map[l.productoId] = { nombre: l.nombre, cant: 0, venta: 0, costo: 0 }); m.cant += l.cantidad; m.venta += l.precio * l.cantidad; m.costo += (l.costo || 0) * l.cantidad; }));
     const arr = Object.entries(map).sort((a, b) => b[1].venta - a[1].venta);
     body = `<div class="card"><h3>Ventas por producto (tickets cerrados)</h3>${arr.length ? `<div class="tw"><table><thead><tr><th>Producto</th><th class="num">Unidades</th><th class="num">Venta</th><th class="num">Costo ref.</th><th class="num">Margen bruto</th></tr></thead><tbody>${arr.map(([id, m]) => `<tr><td>${esc(m.nombre)} <span class="sub tiny">${id}</span></td><td class="num">${m.cant}</td><td class="num">${money(m.venta)}</td><td class="num">${money(m.costo)}</td><td class="num">${money(m.venta - m.costo)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td><td class="num">${suma(arr, x => x[1].cant)}</td><td class="num">${money(suma(arr, x => x[1].venta))}</td><td class="num">${money(suma(arr, x => x[1].costo))}</td><td class="num">${money(suma(arr, x => x[1].venta - x[1].costo))}</td></tr></tfoot></table></div>` : vacio('Sin ventas en el período')}</div>`;
+  } else if (tab === 'instalaciones') {
+    filtrosExtra = `<div class="field"><label for="fRepI">Instalación</label><select id="fRepI" data-f="repInst">${opciones([['', 'Todas'], ...S.instalaciones.map(i => [i.id, i.nombre])], f.repInst)}</select></div>`;
+    const us = S.usos.filter(u => enRango(u.fecha) && (!f.repInst || u.inst === f.repInst));
+    const cob = us.filter(usoCobrado);
+    const filas = S.instalaciones.filter(i => !f.repInst || i.id === f.repInst).map(i => {
+      const x = cob.filter(u => u.inst === i.id), imp = suma(x.filter(u => u.estado === 'imputada'), u => u.cobro.importe), neto = suma(x, u => u.calc.total);
+      return { i, n: x.length, uni: i.clase === 'pileta' ? suma(x, u => u.personas) + ' pers.' : suma(x, u => u.horas) + ' h', bruto: suma(x, u => u.calc.subtotal), desc: suma(x, u => u.calc.descuento), neto, imp, caja: neto - imp, pend: us.filter(u => u.inst === i.id && u.estado === 'reservada').length };
+    });
+    const items = filas.filter(r => r.neto > 0).map(r => [`<b>${esc(r.i.nombre)}</b> <span class="sub small">${r.n} operación(es) · ${r.uni}</span>`, r.neto]);
+    body = `<div class="card mb"><h3>Ingresos por instalación (cobrados)</h3>${filas.length ? `<div class="tw"><table><thead><tr><th>Instalación</th><th class="num">Operaciones</th><th class="num">Uso</th><th class="num">Bruto</th><th class="num">Descuentos</th><th class="num">Neto</th><th class="num">Caja / banco (incl. señas)</th><th class="num">Cargado a parcelas</th><th class="num">Reservas pendientes</th></tr></thead><tbody>
+      ${filas.map(r => `<tr><td><b>${esc(r.i.nombre)}</b></td><td class="num">${r.n}</td><td class="num">${r.uni}</td><td class="num">${money(r.bruto)}</td><td class="num">${money(r.desc)}</td><td class="num"><b>${money(r.neto)}</b></td><td class="num">${money(r.caja)}</td><td class="num">${money(r.imp)}</td><td class="num">${r.pend}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td>Totales</td><td class="num">${suma(filas, r => r.n)}</td><td></td><td class="num">${money(suma(filas, r => r.bruto))}</td><td class="num">${money(suma(filas, r => r.desc))}</td><td class="num">${money(suma(filas, r => r.neto))}</td><td class="num">${money(suma(filas, r => r.caja))}</td><td class="num">${money(suma(filas, r => r.imp))}</td><td class="num">${suma(filas, r => r.pend)}</td></tr></tfoot></table></div>` : vacio('Sin datos')}</div>
+      <div class="grid12"><div class="card s5"><h3>Participación en el neto</h3>${barras(items, suma(items, x => x[1]))}</div>
+      <div class="card s7"><h3>Detalle de operaciones cobradas</h3>${cob.length ? `<div class="tw"><table><thead><tr><th>Código</th><th>Fecha</th><th>Instalación</th><th>Cliente</th><th>Estado</th><th class="num">Neto</th></tr></thead><tbody>${cob.slice().reverse().map(u => `<tr class="click" data-a="verUso" data-v="${u.id}"><td class="mono">${u.id}</td><td>${fFecha(u.fecha)}</td><td>${esc(instalacion(u.inst).nombre)}</td><td>${esc(nombreUso(u))}</td><td>${pillUso(u.estado)}</td><td class="num">${money(u.calc.total)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Sin operaciones cobradas en el período')}</div></div>`;
   } else if (tab === 'saldos') {
     const es = S.estadias.filter(e => (e.estado === 'activa' || e.estado === 'cerrada') && enRango(e.ingreso)).map(e => [e, resumenEstadia(e)]).filter(x => x[1].saldo !== 0);
     const porCli = {}; es.forEach(([e, r]) => { porCli[e.clienteId] = (porCli[e.clienteId] || 0) + r.saldo; });
@@ -2288,9 +3108,40 @@ VISTAS.reportes = () => {
    ===================================================================== */
 VISTAS.config = () => {
   const tab = UI.tabConfig, c = S.config;
-  const tabs = [['tarifas', 'Tarifas y parámetros'], ['temporadas', 'Temporada alta'], ['datos', 'Datos de la demo'], ['pruebas', 'Pruebas funcionales']];
+  const tabs = [['tarifas', 'Tarifas y parámetros'], ['instalaciones', 'Pileta y canchas'], ['temporadas', 'Temporada alta'], ['datos', 'Datos de la demo'], ['pruebas', 'Pruebas funcionales']];
   let body = '';
-  if (tab === 'tarifas') {
+  const $m = v => aPesosInput(v).replace('.', ',');
+  if (tab === 'instalaciones') {
+    const I = c.inst, P = I.pileta;
+    const horasSel = (nombre, desde, hasta, sel) => `<select name="${nombre}">${opciones(Array.from({ length: hasta - desde + 1 }, (_, k) => [deMin((desde + k) * 60), deMin((desde + k) * 60)]), sel)}</select>`;
+    body = `<form id="fCfgInst" class="card" novalidate><div id="errCfgInst"></div>
+      <div class="notice warn">Valores de ejemplo <b>ficticios</b>. Los cambios aplican a nuevas ventas y reservas; las ya registradas conservan su precio.</div>
+      <div class="h3">Pileta — entradas individuales y alquiler</div>
+      <div class="g4">
+        <div class="field"><label>Entrada adulto (ARS)</label><input name="pi_ea" inputmode="decimal" value="${$m(P.entradaAdulto)}"></div>
+        <div class="field"><label>Entrada menor (ARS)</label><input name="pi_em" inputmode="decimal" value="${$m(P.entradaMenor)}"></div>
+        <div class="field"><label>Menor hasta (años)</label><input name="pi_edad" type="number" min="1" max="17" value="${P.edadMenor}"></div>
+        <div class="field"><label>Aforo diario (personas)</label><input name="pi_aforo" type="number" min="1" max="1000" value="${P.aforo}"></div>
+        <div class="field"><label>Alquiler por turno (ARS)</label><input name="pi_alq" inputmode="decimal" value="${$m(P.alquilerTurno)}"></div>
+        <div class="field"><label>Personas incluidas</label><input name="pi_incl" type="number" min="1" max="200" value="${P.personasIncl}"></div>
+        <div class="field"><label>Persona adicional (ARS)</label><input name="pi_extra" inputmode="decimal" value="${$m(P.extraPersona)}"></div>
+        <div class="field"><label>Máximo en alquiler</label><input name="pi_aforoAlq" type="number" min="1" max="300" value="${P.aforoAlquiler}"></div>
+        <div class="field"><label>Recargo temporada alta (%)</label><input name="pi_alta" type="number" min="0" max="300" step="0.01" value="${P.recargoAlta}"></div>
+      </div>
+      <p class="sub small mb">Turnos de alquiler: ${P.turnos.map(t => `${esc(t.nombre.toLowerCase())} ${t.desde}–${t.hasta}`).join(' · ')}.</p>
+      <div class="h3 mt">Canchas — precio por hora</div>
+      <div class="tw"><table><thead><tr><th>Cancha</th><th>Precio por hora (ARS)</th><th>Duración máxima (h)</th><th>Jugadores</th></tr></thead><tbody>
+      ${Object.entries(I.canchas).map(([k, C]) => `<tr><td><b>${esc(C.nombre)}</b></td><td><input name="c_${k}_p" inputmode="decimal" value="${$m(C.precioHora)}"></td><td><input name="c_${k}_h" type="number" min="1" max="4" value="${C.maxHoras}"></td><td class="sub">hasta ${C.capacidad}</td></tr>`).join('')}</tbody></table></div>
+      <div class="g4 mt">
+        <div class="field"><label>Apertura de canchas</label>${horasSel('apertura', 6, 14, I.apertura)}</div>
+        <div class="field"><label>Cierre de canchas</label>${horasSel('cierre', 17, 24, I.cierre)}</div>
+        <div class="field"><label>Iluminación desde</label>${horasSel('nocturnoDesde', 15, 22, I.nocturnoDesde)}</div>
+        <div class="field"><label>Recargo nocturno (%)</label><input name="recargoNocturno" type="number" min="0" max="300" step="0.01" value="${I.recargoNocturno}"></div>
+        <div class="field"><label>Descuento de socios activos (%)</label><input name="descSocio" type="number" min="0" max="100" step="0.01" value="${I.descSocio}"></div>
+        <div class="field"><label>Seña sugerida (%)</label><input name="senaPct" type="number" min="0" max="100" step="0.01" value="${I.senaPct}"></div>
+      </div>
+      <button class="btn" type="submit">Guardar tarifas de pileta y canchas</button></form>`;
+  } else if (tab === 'tarifas') {
     body = `<form id="fCfg" class="card" novalidate><div id="errCfg"></div>
       <div class="notice warn">Valores de ejemplo <b>ficticios</b>. Los cambios aplican a nuevas reservas y check-ins; las estadías existentes conservan la tarifa con la que fueron creadas.</div>
       <div class="field" style="max-width:420px"><label>Nombre del club</label><input name="club" maxlength="60" value="${esc(c.club)}"></div>
@@ -2325,9 +3176,9 @@ VISTAS.config = () => {
         <p class="sub small">Restablecer elimina todos los movimientos del usuario y vuelve al estado inicial con fechas relativas a hoy.</p></div></div></div>`;
   } else {
     const t = UI.tests;
-    body = `<div class="card"><h3>Pruebas funcionales obligatorias <button class="btn sm" type="button" data-a="runTests">Ejecutar las 15 pruebas</button></h3>
+    body = `<div class="card"><h3>Pruebas funcionales (15 del sistema base + 8 de pileta y canchas) <button class="btn sm" type="button" data-a="runTests">Ejecutar las 23 pruebas</button></h3>
       <p class="sub small mb">Cada prueba corre sobre una copia aislada de los datos de demostración: no modifica su información.</p>
-      ${t ? `<div class="notice ${t.every(x => x.ok) ? 'ok' : 'bad'}">${t.filter(x => x.ok).length} de ${t.length} pruebas superadas.</div><div class="tw"><table class="tres"><thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${t.map(x => `<tr><td>${x.n}</td><td>${esc(x.nombre)}</td><td>${x.ok ? '<span class="pill ok">✓ OK</span>' : '<span class="pill bad">✕ Falla</span>'}</td><td class="small">${esc(x.detalle)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Aún no se ejecutaron', 'Presione «Ejecutar las 15 pruebas».')}</div>`;
+      ${t ? `<div class="notice ${t.every(x => x.ok) ? 'ok' : 'bad'}">${t.filter(x => x.ok).length} de ${t.length} pruebas superadas.</div><div class="tw"><table class="tres"><thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${t.map(x => `<tr><td>${x.n}</td><td>${esc(x.nombre)}</td><td>${x.ok ? '<span class="pill ok">✓ OK</span>' : '<span class="pill bad">✕ Falla</span>'}</td><td class="small">${esc(x.detalle)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Aún no se ejecutaron', 'Presione «Ejecutar las 23 pruebas».')}</div>`;
   }
   return `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" type="button" role="tab" aria-selected="${tab === k}" data-a="tabConfig" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
 };
@@ -2485,6 +3336,118 @@ function ejecutarPruebas() {
       S = construirSeed();
       esperar(JSON.stringify(S) === ref, 'no coincide con el estado inicial');
       return 'Tras modificar datos, el restablecimiento reproduce exactamente el estado de demostración.';
+    })],
+    /* ---------- Pileta y canchas ---------- */
+    ['Cancha: horas, recargo nocturno y descuento de socio', () => {
+      const cfg = clon(S.config);
+      const c = calcularUso({ inst: 'F5', fecha: '2031-05-10', desde: '20:00', horas: 2, cliente: cliente('C-006') }, cfg);
+      esperar(c.ok && c.subtotal === 8750000 && c.total === 8750000 && c.hasta === '22:00', 'noche ' + c.total);
+      const d = calcularUso({ inst: 'F5', fecha: '2031-05-10', desde: '17:00', horas: 3, cliente: cliente('C-001') }, cfg);
+      esperar(d.subtotal === 11375000 && d.descuento === 2275000 && d.total === 9100000, 'mixto ' + d.total);
+      const v = calcularUso({ inst: 'F5', fecha: '2031-05-10', desde: '17:00', horas: 3, cliente: cliente('C-004') }, cfg);
+      esperar(v.descuento === 0 && v.total === 11375000, 'cuota vencida no descuenta');
+      const er = calcularUso({ inst: 'F11', fecha: '2031-05-10', desde: '22:00', horas: 2, cliente: null }, cfg);
+      esperar(!er.ok && /funcionan de/.test(er.errores.join()), 'fuera de horario');
+      return `Fútbol 5 de 20 a 22 h: ${money(c.total)} (con +25 % de iluminación). 17 a 20 h, socia: ${money(d.total)}. Cuota vencida: sin descuento.`;
+    }],
+    ['Alquiler de pileta: turno, personas adicionales y temporada alta', () => {
+      const cfg = clon(S.config); cfg.temporadas = [{ id: 'X', nombre: 'Alta', desde: '2031-05-10', hasta: '2031-05-10' }];
+      const base = { inst: 'PIL', tipo: 'alquiler', turno: 'TA', personas: 45, cliente: cliente('C-006') };
+      const a = calcularUso({ ...base, fecha: '2031-05-10' }, cfg), b = calcularUso({ ...base, fecha: '2031-05-12' }, cfg);
+      esperar(b.ok && b.subtotal === 16500000, 'base ' + b.subtotal);
+      esperar(a.ok && a.alta && a.subtotal === 19800000, 'temporada alta ' + a.subtotal);
+      const x = calcularUso({ ...base, fecha: '2031-05-12', personas: 61 }, cfg);
+      esperar(!x.ok && /hasta 60/.test(x.errores.join()), 'máximo de personas');
+      return `Turno ${money(12000000)} + 15 personas adicionales = ${money(b.subtotal)}; en temporada alta (+20 %) ${money(a.subtotal)}.`;
+    }],
+    ['El aforo diario de la pileta no se puede superar', () => enSandbox(() => {
+      const cap = S.config.inst.pileta.aforo, usado = aforoUsado(H);
+      const venta = n => crearUso({ inst: 'PIL', tipo: 'entrada', fecha: H, nombre: 'Grupo', adultos: n, menores: 0, cobro: { modo: 'pago', medio: 'efectivo' } });
+      const er = lanza(() => venta(cap));
+      esperar(er && /Aforo/.test(er.message), 'debió rechazar');
+      transaccion(() => venta(cap - usado));
+      esperar(aforoUsado(H) === cap, 'aforo completo');
+      const er2 = lanza(() => venta(1));
+      esperar(er2 && /Aforo/.test(er2.message), 'debió rechazar con aforo completo');
+      return `Con ${usado} entradas vendidas, ${cap} excede el aforo; se vendieron las ${cap - usado} restantes y la siguiente fue rechazada.`;
+    })],
+    ['Cancha ocupada no admite reservas superpuestas', () => enSandbox(() => {
+      const f = sumarDias(H, 5);
+      transaccion(() => crearUso({ inst: 'F5', fecha: f, desde: '20:00', horas: 2, clienteId: 'C-006' }));
+      const er = lanza(() => crearUso({ inst: 'F5', fecha: f, desde: '21:00', horas: 1, clienteId: 'C-002' }));
+      esperar(er && /Superposición/.test(er.message), 'debió rechazar superposición');
+      const ok = transaccion(() => crearUso({ inst: 'F5', fecha: f, desde: '22:00', horas: 1, clienteId: 'C-002' }));
+      esperar(ok.estado === 'reservada', 'la reserva contigua debe aceptarse');
+      transaccion(() => crearUso({ inst: 'PAD', fecha: f, desde: '20:00', horas: 1, clienteId: 'C-002' }));
+      const er2 = lanza(() => crearUso({ inst: 'PIL', tipo: 'alquiler', fecha: sumarDias(H, 1), turno: 'TA', personas: 20, clienteId: 'C-006' }));
+      esperar(er2 && /Superposición/.test(er2.message), 'el turno de la pileta ya está alquilado');
+      return 'Rechaza 21:00 sobre una reserva de 20 a 22; acepta la contigua de 22:00 y la misma hora en otra cancha; el turno de pileta ocupado no se duplica.';
+    })],
+    ['Reserva con seña: el cobro aplica el anticipo, cuadra y no se duplica', () => enSandbox(() => {
+      const f = sumarDias(H, 4);
+      const u = transaccion(() => crearUso({ inst: 'F11', fecha: f, desde: '10:00', horas: 2, clienteId: 'C-006', sena: { importe: 3000000, medio: 'transferencia' } }));
+      esperar(u.calc.total === 18000000, 'total ' + u.calc.total);
+      const er0 = lanza(() => cobrarUso(u.id, { modo: 'pago', medio: 'efectivo' }));
+      esperar(er0 && /día de uso/.test(er0.message), 'no se cobra antes del día de uso');
+      CLOCK.override = `${f}T12:30`;
+      const ant0 = saldoCuenta('ANT').acreedor, ing0 = saldoCuenta('ING_CAN').acreedor, caja0 = saldoCuenta('CAJA').deudor;
+      transaccion(() => cobrarUso(u.id, { modo: 'pago', medio: 'efectivo' }));
+      esperar(saldoCuenta('ANT').acreedor === ant0 - 3000000, 'seña aplicada');
+      esperar(saldoCuenta('ING_CAN').acreedor === ing0 + 18000000, 'ingreso bruto');
+      esperar(saldoCuenta('CAJA').deudor === caja0 + 15000000 && uso(u.id).cobro.importe === 15000000, 'saldo cobrado en efectivo');
+      const na = S.asientos.length;
+      const er = lanza(() => cobrarUso(u.id, { modo: 'pago', medio: 'efectivo' }));
+      esperar(er && er.code === 'DUPLICADO' && S.asientos.length === na, 'no debe duplicar');
+      const mal = S.asientos.filter(a => suma(a.lineas, l => l.debe) !== suma(a.lineas, l => l.haber));
+      esperar(!mal.length, 'asientos descuadrados');
+      const antPend = suma(S.pagos.filter(p => p.tipo === 'anticipo' && !p.aplicado && !p.devuelto), p => p.importe);
+      esperar(saldoCuenta('ANT').acreedor === antPend + senasPendientesUsos(), 'control de anticipos');
+      esperar(saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor === suma(S.usos.filter(usoCobrado), x => x.calc.subtotal), 'control de ingresos');
+      esperar(saldoCuenta('DESC_INS').deudor === suma(S.usos.filter(usoCobrado), x => x.calc.descuento), 'control de descuentos');
+      return `Total ${money(18000000)}: seña ${money(3000000)} aplicada y ${money(15000000)} cobrados en efectivo; segundo cobro rechazado; controles contables coinciden.`;
+    })],
+    ['Entrada cargada a una parcela suma al saldo y no se duplica', () => enSandbox(() => {
+      const e = estadiaActivaDeUnidad('P02'); const s0 = resumenEstadia(e).saldo, nc = S.cargos.length;
+      const u = transaccion(() => crearUso({ inst: 'PIL', tipo: 'entrada', fecha: H, clienteId: e.clienteId, adultos: 2, menores: 1, cobro: { modo: 'imputar', estadiaId: e.id } }));
+      const r = resumenEstadia(e);
+      esperar(u.estado === 'imputada' && r.saldo === s0 + u.calc.total, 'saldo');
+      esperar(S.cargos.length === nc + 1 && S.cargos[S.cargos.length - 1].tipo === 'pileta' && r.otros === u.cobro.importe, 'cargo registrado como otros cargos');
+      const na = S.asientos.length;
+      const er = lanza(() => cobrarUso(u.id, { modo: 'imputar', estadiaId: e.id }));
+      esperar(er && S.cargos.length === nc + 1 && S.asientos.length === na, 'no duplicar cargo');
+      const pv = previsualizarCierre(e.id, null);
+      esperar(pv.r.otros === u.cobro.importe, 'el check-out informa el cargo');
+      const er2 = lanza(() => crearUso({ inst: 'PIL', tipo: 'entrada', fecha: H, clienteId: e.clienteId, adultos: 1, menores: 0, cobro: { modo: 'imputar', estadiaId: 'E-9999' } }));
+      esperar(er2 && /estadía/i.test(er2.message), 'estadía inexistente');
+      return `Saldo de P02 ${money(s0)} → ${money(s0 + u.calc.total)}; reintento rechazado y cargo visible en el check-out.`;
+    })],
+    ['Cancelar una reserva con seña devuelve el anticipo y libera el horario', () => enSandbox(() => {
+      const d = { inst: 'PAD', fecha: sumarDias(H, 6), desde: '18:00', horas: 1, clienteId: 'C-006', sena: { importe: 1000000, medio: 'efectivo' } };
+      const u = transaccion(() => crearUso(d));
+      const ant = saldoCuenta('ANT').acreedor, caja = saldoCuenta('CAJA').deudor;
+      transaccion(() => cancelarUso(u.id));
+      esperar(saldoCuenta('ANT').acreedor === ant - 1000000 && saldoCuenta('CAJA').deudor === caja - 1000000, 'devolución de la seña');
+      esperar(uso(u.id).estado === 'cancelada' && uso(u.id).sena.devuelta, 'estado');
+      const er = lanza(() => cancelarUso(u.id));
+      esperar(er && er.code === 'DUPLICADO', 'segunda cancelación');
+      const er2 = lanza(() => cobrarUso(u.id, { modo: 'pago', medio: 'efectivo' }));
+      esperar(er2 && /cancelada/.test(er2.message), 'no se cobra una reserva cancelada');
+      const otra = transaccion(() => crearUso({ ...d, clienteId: 'C-002', sena: null }));
+      esperar(otra.estado === 'reservada', 'horario liberado');
+      return 'Seña de $ 10.000 devuelta (Debe Anticipos / Haber Caja); la reserva cancelada no se cobra y el horario vuelve a estar disponible.';
+    })],
+    ['Una instalación en mantenimiento no admite reservas', () => enSandbox(() => {
+      const er0 = lanza(() => setMantInst('F5', true, 'Riego'));
+      esperar(er0 && /reserva/i.test(er0.message) && !instalacion('F5').mantenimiento, 'debió bloquear por reservas pendientes');
+      S.usos.filter(u => u.inst === 'F5' && u.estado === 'reservada').forEach(u => transaccion(() => cancelarUso(u.id)));
+      transaccion(() => setMantInst('F5', true, 'Riego y pintura de líneas'));
+      const n = S.usos.length, d = { inst: 'F5', fecha: sumarDias(H, 2), desde: '18:00', horas: 1, clienteId: 'C-006' };
+      const er = lanza(() => crearUso(d));
+      esperar(er && /mantenimiento/.test(er.message) && S.usos.length === n, 'debió rechazar');
+      esperar(estadoInst(instalacion('F5')) === 'mantenimiento', 'estado en el mapa');
+      transaccion(() => setMantInst('F5', false));
+      esperar(transaccion(() => crearUso(d)).estado === 'reservada', 'habilitada nuevamente');
+      return 'Bloquea el mantenimiento con reservas pendientes; en mantenimiento rechaza reservas; al habilitarla vuelve a aceptarlas.';
     })]
   ];
   return P.map(([nombre, fn], i) => {
@@ -2555,7 +3518,29 @@ const ACCIONES = {
   },
   quitarTemporada: async v => { const ok = await confirmar({ titulo: 'Quitar período', peligro: true, ok: 'Quitar', html: '<p>El período dejará de aplicarse a nuevos cálculos. Las estadías existentes no cambian.</p>' }); if (ok) ejecutar(() => quitarTemporada(v), 'Período eliminado.'); },
   limpiarFiltrosAs: () => { Object.assign(UI.f, { asDesde: '', asHasta: '', asCuenta: '', asQ: '', asOrigen: '' }); render(); },
-  limpiarFiltrosRep: () => { Object.assign(UI.f, { repDesde: '', repHasta: '', repArea: '', repEstado: 'todas' }); render(); },
+  limpiarFiltrosRep: () => { Object.assign(UI.f, { repDesde: '', repHasta: '', repArea: '', repEstado: 'todas', repInst: '' }); render(); },
+  /* --- Pileta y canchas --- */
+  selInst: v => { UI.selInst = UI.selInst === v ? null : v; render(); },
+  verInst: v => { cerrarModal(); UI.selInst = v; UI.tabDep = 'mapa'; ir('deportes'); },
+  tabDep: v => { UI.tabDep = v; render(); },
+  verAgenda: () => { UI.tabDep = 'agenda'; render(); },
+  nuevoUsoGlobal: () => modalUso({}),
+  nuevoUso: v => modalUso({ inst: v }),
+  nuevaEntrada: () => modalUso({ inst: 'PIL', tipo: 'entrada' }),
+  nuevoAlquilerPileta: () => modalUso({ inst: 'PIL', tipo: 'alquiler' }),
+  nuevoAlquilerFecha: v => { const [fecha, turno] = v.split('|'); modalUso({ inst: 'PIL', tipo: 'alquiler', fecha, turno }); },
+  nuevoUsoSlot: v => { const [inst, fecha, desde] = v.split('|'); modalUso({ inst, fecha, desde }); },
+  verUso: v => modalVerUso(v),
+  cobrarUso: v => modalCobroUso(v),
+  senaUso: v => modalSenaUso(v),
+  cancelarUso: async v => {
+    const u = uso(v); if (!u) return;
+    const ok = await confirmar({ titulo: 'Cancelar reserva', peligro: true, ok: 'Cancelar reserva', html: `<p>Se cancelará la reserva <b>${esc(u.id)}</b> (${esc(instalacion(u.inst).nombre)}, ${fFecha(u.fecha)} ${u.desde}–${u.hasta}).</p>${senaVigente(u) ? `<p class="mt">Se registrará la devolución de la seña de <b>${money(u.sena.importe)}</b>.</p>` : ''}<p class="sub small mt">Esta acción no se puede deshacer.</p>` });
+    if (ok && ejecutar(() => cancelarUso(v), `Reserva ${v} cancelada.`)) { if ($('#dlg').open) modalVerUso(v); }
+  },
+  depDia: v => { const base = esFechaISO(UI.f.depFecha) ? UI.f.depFecha : hoy(); UI.f.depFecha = v === '0' ? '' : sumarDias(base, +v); render(); },
+  iniMantInst: v => abrirModal({ titulo: `Enviar «${instalacion(v).nombre}» a mantenimiento`, ancho: 'narrow', cuerpo: `<form id="fMantInst" novalidate><div class="field"><label>Motivo</label><input name="motivo" maxlength="120" placeholder="Riego, pintura de líneas, limpieza de la pileta…"></div><p class="sub small">No se puede enviar a mantenimiento si tiene reservas pendientes.</p></form>`, pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn warnb" type="submit" form="fMantInst">Enviar a mantenimiento</button>`, onBind: d => d.querySelector('#fMantInst').addEventListener('submit', ev => { ev.preventDefault(); if (ejecutar(() => setMantInst(v, true, formData(ev.target).motivo), `${instalacion(v).nombre} en mantenimiento.`)) cerrarModal(); }) }),
+  finMantInst: async v => { const ok = await confirmar({ titulo: 'Finalizar mantenimiento', ok: 'Habilitar', html: `<p><b>${esc(instalacion(v).nombre)}</b> quedará disponible para reservas y ventas.</p>` }); if (ok) ejecutar(() => setMantInst(v, false), `${instalacion(v).nombre} habilitada.`); },
   resetDemo: async () => {
     const ok = await confirmar({ titulo: 'Restablecer datos de demostración', peligro: true, ok: 'Restablecer', html: '<p>Se eliminarán todos los movimientos registrados y se recargarán los datos ficticios iniciales.</p><p class="sub small mt">Esta acción no se puede deshacer.</p>' });
     if (ok) { restablecerDemo(); cerrarModal(); render(); toast('Datos de demostración restablecidos.'); }
@@ -2569,7 +3554,7 @@ const ACCIONES = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `camping-demo-${hoy()}.json`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   },
-  runTests: () => { UI.tests = ejecutarPruebas(); render(); const f = UI.tests.filter(x => !x.ok).length; toast(f ? `${f} prueba(s) con fallas.` : 'Las 15 pruebas funcionales fueron superadas.', f ? 'error' : 'ok'); }
+  runTests: () => { UI.tests = ejecutarPruebas(); render(); const f = UI.tests.filter(x => !x.ok).length; toast(f ? `${f} prueba(s) con fallas.` : `Las ${UI.tests.length} pruebas funcionales fueron superadas.`, f ? 'error' : 'ok'); }
 };
 document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-a]');
@@ -2600,6 +3585,7 @@ document.addEventListener('change', ev => {
 document.addEventListener('submit', ev => {
   if (ev.target.id === 'fCfg') { ev.preventDefault(); const fd = formData(ev.target); fd.recargoSobreAdicionales = fd.recargoSobreAdicionales === 'on'; ejecutar(() => guardarConfig(fd), 'Parámetros guardados. Aplican a nuevas estadías.'); }
   if (ev.target.id === 'fTemp') { ev.preventDefault(); ejecutar(() => agregarTemporada(formData(ev.target)), 'Período de temporada alta agregado.'); }
+  if (ev.target.id === 'fCfgInst') { ev.preventDefault(); ejecutar(() => guardarConfigInst(formData(ev.target)), 'Tarifas de pileta y canchas guardadas. Aplican a nuevas ventas y reservas.'); }
 });
 $('#burger').addEventListener('click', ev => { ev.stopPropagation(); $('#app').classList.toggle('open'); });
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (TITULOS[h] && h !== UI.route) { UI.route = h; render(); } });
