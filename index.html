@@ -348,7 +348,7 @@ const CUENTAS = {
   ING_EST: { cod: '4.1.01', nombre: 'Ingresos por estadía', tipo: 'Resultado +' },
   ING_GAS: { cod: '4.1.02', nombre: 'Ingresos por gastronomía', tipo: 'Resultado +' },
   ING_PIL: { cod: '4.1.03', nombre: 'Ingresos por pileta', tipo: 'Resultado +' },
-  ING_CAN: { cod: '4.1.04', nombre: 'Ingresos por canchas', tipo: 'Resultado +' },
+  ING_CAN: { cod: '4.1.04', nombre: 'Ingresos por canchas y salones', tipo: 'Resultado +' },
   DESC:    { cod: '4.9.01', nombre: 'Descuentos otorgados', tipo: 'Resultado −' },
   DESC_INS: { cod: '4.9.02', nombre: 'Descuentos de pileta y canchas', tipo: 'Resultado −' }
 };
@@ -442,7 +442,8 @@ function instConfigInicial() {
     canchas: {
       F5:  { nombre: 'Fútbol 5',  precioHora: 3500000, capacidad: 10, maxHoras: 3 },
       F11: { nombre: 'Fútbol 11', precioHora: 9000000, capacidad: 22, maxHoras: 2 },
-      PAD: { nombre: 'Pádel',     precioHora: 2800000, capacidad: 4,  maxHoras: 3 }
+      PAD: { nombre: 'Pádel',     precioHora: 2800000, capacidad: 4,  maxHoras: 3 },
+      SAL: { nombre: 'Salón de eventos', precioHora: 4500000, capacidad: 80, maxHoras: 8, sinNoct: true }
     }
   };
 }
@@ -451,7 +452,8 @@ function instalacionesBase() {
     { id: 'PIL', nombre: 'Pileta', clase: 'pileta', mantenimiento: false, motivoMant: '' },
     { id: 'F11', nombre: 'Cancha de fútbol 11', clase: 'F11', mantenimiento: false, motivoMant: '' },
     { id: 'F5', nombre: 'Cancha de fútbol 5', clase: 'F5', mantenimiento: false, motivoMant: '' },
-    { id: 'PAD', nombre: 'Cancha de pádel', clase: 'PAD', mantenimiento: false, motivoMant: '' }
+    { id: 'PAD', nombre: 'Cancha de pádel', clase: 'PAD', mantenimiento: false, motivoMant: '' },
+    { id: 'SAL', nombre: 'Salón de eventos', clase: 'SAL', mantenimiento: false, motivoMant: '' }
   ];
 }
 function membresiaInicial() {
@@ -598,6 +600,7 @@ function construirSeed() {
     reservarMesa('BARRA-B03', { nombre: 'Reserva barra', hora: '20:00', comensales: 1 });
     // --- Pileta y canchas: historial cobrado, ventas de hoy y reservas próximas ---
     at(-10, '12:00');
+    Object.assign(instalacion('PAD'), { propietarioId: 'PR-02', pctProp: 50, pctClub: 50 });
     const u1 = crearUso({ inst: 'F5', fecha: sumarDias(H, -9), desde: '19:00', horas: 2, clienteId: 'C-006', notas: 'Partido de amigos (ficticio)', sena: { importe: 2500000, medio: 'transferencia' } });
     at(-9, '21:10');
     cobrarUso(u1.id, { modo: 'pago', medio: 'efectivo' });
@@ -681,6 +684,8 @@ function deserializar(txt) {
   const d = o.data;
   d.schema = APP.schema;
   if (d.config && !d.config.membresia) d.config.membresia = membresiaInicial();
+  if (d.config && d.config.inst && d.config.inst.canchas && !d.config.inst.canchas.SAL) d.config.inst.canchas.SAL = instConfigInicial().canchas.SAL;
+  if (Array.isArray(d.instalaciones) && !d.instalaciones.some(i => i.id === 'SAL')) d.instalaciones.push(instalacionesBase().find(i => i.id === 'SAL'));
   if (!Array.isArray(d.solicitudes)) d.solicitudes = [];
   if (d.seq && d.seq.sol === undefined) d.seq.sol = 0;
   ['clientes', 'unidades', 'estadias', 'pagos', 'cargos', 'tickets', 'productos', 'mesas', 'liquidaciones', 'asientos', 'instalaciones', 'usos'].forEach(k => { if (!Array.isArray(d[k])) throw new Error('Falta la colección ' + k); });
@@ -1333,6 +1338,87 @@ function pagarLiquidacion(id, medio) {
   return l;
 }
 function esCabana(u) { return u.clase === 'cabana'; }
+/** Parte del ingreso de pileta/canchas/salón que corresponde a propietarios (ya liquidada). */
+const liqUsosProp = () => suma(S.liquidaciones.filter(l => l.usoId), l => l.importeProp);
+/** Liquida al propietario de una instalación subalquilada cuando se cobra un uso (entrada, alquiler o reserva). Una sola vez por uso. */
+function liquidarUsoTercero(u, ins) {
+  if (S.liquidaciones.some(l => l.usoId === u.id)) throw new ErrNegocio(`El uso ${u.id} ya fue liquidado.`, 'DUPLICADO');
+  const v = validarPorcentajes(ins.pctProp, ins.pctClub);
+  if (!v.ok) throw new ErrNegocio(v.motivo);
+  const base = u.calc.total;                 // lo cobrado por el uso, después del descuento de socio
+  const importeProp = pct(base, ins.pctProp);
+  const importeClub = base - importeProp;
+  const a = registrarAsiento({ concepto: `Liquidación ${ins.id} — ${u.id} (${ins.pctProp} % propietario)`, ref: u.id, refTipo: 'liquidacion', lineas: [{ cuenta: cuentaIngresoInst(ins), debe: importeProp }, { cuenta: 'PROP', haber: importeProp }] });
+  const l = { id: nextId('liq', 'LQ'), estadiaId: null, usoId: u.id, unidadId: ins.id, propietarioId: ins.propietarioId, base, pctProp: ins.pctProp, pctClub: ins.pctClub, importeProp, importeClub, fecha: ahora(), estado: 'Pendiente de pago', asientoId: a.id, origen: ORIGEN };
+  S.liquidaciones.push(l);
+  bitacora(`Liquidación ${l.id}: ${money(importeProp)} para el propietario, ${money(importeClub)} para el club (${ins.nombre})`, l.id);
+  return l;
+}
+function resolverPropietario(d, errs) {
+  let prop = propietario(d.propietarioId);
+  if (d.propietarioId === '__nuevo') {
+    const pn = limpiar(d.propNombre, 60);
+    if (!pn) errs.push('Indique el nombre del nuevo propietario.');
+    else if (!errs.length) { prop = { id: nextId('prop', 'PR', 2), nombre: pn, doc: limpiar(d.propDoc, 14), tel: limpiar(d.propTel, 25), cbu: '' }; S.propietarios.push(prop); }
+  } else if (!prop) errs.push('Seleccione un propietario.');
+  return prop;
+}
+/** Subalquila (o edita el subalquiler de) una instalación: pileta, cancha o salón. */
+function guardarSubInst(d, id) {
+  const ins = instalacion(id);
+  if (!ins) throw new ErrNegocio('Instalación inexistente.');
+  const errs = [];
+  const v = validarPorcentajes(d.pctProp, d.pctClub);
+  if (!v.ok) errs.push(v.motivo);
+  const prop = resolverPropietario(d, errs);
+  if (errs.length) throw new ErrNegocio(errs.join(' '));
+  const era = !!ins.propietarioId;
+  Object.assign(ins, { propietarioId: prop.id, pctProp: Number(d.pctProp), pctClub: Number(d.pctClub) });
+  bitacora(era ? `Subalquiler de ${ins.nombre} actualizado (${ins.pctProp}/${ins.pctClub})` : `${ins.nombre} pasa a subalquilarse (${prop.nombre}, ${ins.pctProp}/${ins.pctClub})`, ins.id);
+  return ins;
+}
+function dejarDeSubalquilarInst(id) {
+  const ins = instalacion(id);
+  if (!ins) throw new ErrNegocio('Instalación inexistente.');
+  if (!ins.propietarioId) throw new ErrNegocio(`${ins.nombre} no está subalquilada.`);
+  const pend = S.usos.filter(u => u.inst === ins.id && u.estado === 'reservada' && u.tipo !== 'entrada').length;
+  const nom = propietario(ins.propietarioId).nombre;
+  ins.propietarioId = null; ins.pctProp = null; ins.pctClub = null;
+  bitacora(`${ins.nombre} deja de subalquilarse (era de ${nom})${pend ? `; ${pend} reserva(s) pendiente(s) se cobrarán sin liquidación` : ''}`, ins.id);
+  return { ins, pend };
+}
+/** Camping completo: asigna el mismo propietario y porcentajes a todo lo que todavía administra el club. Omite lo que tiene una estadía en curso. */
+function subalquilarTodo(d) {
+  const errs = [];
+  const v = validarPorcentajes(d.pctProp, d.pctClub);
+  if (!v.ok) errs.push(v.motivo);
+  const prop = resolverPropietario(d, errs);
+  if (errs.length) throw new ErrNegocio(errs.join(' '));
+  const p = Number(d.pctProp), c = Number(d.pctClub), omitidas = [];
+  let n = 0;
+  S.unidades.filter(u => !u.propietarioId).forEach(u => {
+    if (estadiaActivaDeUnidad(u.id)) { omitidas.push(u.id); return; }
+    Object.assign(u, { propietarioId: prop.id, pctProp: p, pctClub: c }); n++;
+  });
+  S.instalaciones.filter(i => !i.propietarioId).forEach(i => { Object.assign(i, { propietarioId: prop.id, pctProp: p, pctClub: c }); n++; });
+  if (!n) throw new ErrNegocio('No hay nada para subalquilar: todo ya está subalquilado o con estadías en curso.');
+  bitacora(`Camping completo subalquilado a ${prop.nombre} (${p}/${c}): ${n} unidad(es) e instalación(es)${omitidas.length ? '; omitidas por estadía en curso: ' + omitidas.join(', ') : ''}`, prop.id);
+  return { prop, n, omitidas };
+}
+/** Devuelve al club todo lo que subalquila un propietario (omite unidades con estadía en curso). */
+function dejarTodoDe(propId) {
+  const prop = propietario(propId);
+  if (!prop) throw new ErrNegocio('Propietario inexistente.');
+  const omitidas = []; let n = 0;
+  S.unidades.filter(u => u.propietarioId === propId).forEach(u => {
+    if (estadiaActivaDeUnidad(u.id)) { omitidas.push(u.id); return; }
+    u.propietarioId = null; u.pctProp = null; u.pctClub = null; n++;
+  });
+  S.instalaciones.filter(i => i.propietarioId === propId).forEach(i => { i.propietarioId = null; i.pctProp = null; i.pctClub = null; n++; });
+  if (!n && !omitidas.length) throw new ErrNegocio(`${prop.nombre} no subalquila nada.`);
+  bitacora(`${prop.nombre} deja de subalquilar ${n} unidad(es) e instalación(es)${omitidas.length ? '; siguen con él por estadía en curso: ' + omitidas.join(', ') : ''}`, prop.id);
+  return { prop, n, omitidas };
+}
 /** Alta/edición de una unidad de terceros. Cualquier parcela o cabaña existente puede subalquilarse; las cabañas nuevas se crean ya subalquiladas. */
 function guardarUnidadTercero(d, id) {
   const errs = [];
@@ -1507,7 +1593,7 @@ function calcularUso(p, cfg) {
       hasta = deMin(hm(desde) + horas * 60);
       if (hm(desde) < hm(I.apertura) || hm(hasta) > hm(I.cierre)) errores.push(`Las canchas funcionan de ${I.apertura} a ${I.cierre}.`);
       for (let m = hm(desde); m < hm(desde) + horas * 60; m += 60) {
-        const noct = m >= hm(I.nocturnoDesde);
+        const noct = !C.sinNoct && m >= hm(I.nocturnoDesde);
         detalleHoras.push({ hora: deMin(m), noct, base: C.precioHora, rec: noct ? pct(C.precioHora, I.recargoNocturno) : 0 });
       }
       lineas.push({ txt: `${ins.nombre} (${horas} h × ${money(C.precioHora)})`, imp: horas * C.precioHora });
@@ -1623,6 +1709,7 @@ function liquidarUso(u, o) {
   u.estado = modo === 'imputar' ? 'imputada' : 'cobrada';
   u.cobro = { fecha: ahora(), tipo: modo === 'imputar' ? 'imputacion' : 'pago', medio: modo === 'pago' && due > 0 ? o.medio : null, importe: due, sena, asientoId: a.id, cargoId: cargo ? cargo.id : null, estadiaId: e ? e.id : null, op };
   bitacora(`${USO_TIPO_TXT[u.tipo]} ${u.id} cobrado ${money(c.total)} ${modo === 'imputar' ? 'a la cuenta ' + e.id : due > 0 ? '(' + MEDIOS[o.medio].nombre + ')' : '(seña aplicada)'}`, u.id);
+  if (ins.propietarioId) liquidarUsoTercero(u, ins);
   return u;
 }
 function cobrarUso(id, o) {
@@ -2686,18 +2773,29 @@ function modalProducto(id) {
    12. SUBALQUILERES Y PROPIETARIOS (vista)
    ===================================================================== */
 VISTAS.subalquiler = () => {
-  const us = S.unidades.filter(u => u.propietarioId);
+  const us = S.unidades.filter(u => u.propietarioId), insP = S.instalaciones.filter(i => i.propietarioId);
   const pend = S.liquidaciones.filter(l => l.estado !== 'Pagada');
   return `
-  <div class="notice info"><b>Subalquiler opcional:</b> cualquier parcela o cabaña del camping puede subalquilarse a un propietario (botón <i>Subalquilar</i> en el mapa o acá) y dejar de hacerlo cuando no tenga una estadía en curso. Las que no se subalquilan las administra el club al 100 %.</div>
-  <div class="notice info mt-s"><b>Regla de liquidación:</b> la base es el ingreso de alojamiento de la unidad <i>después</i> de descuentos y <i>antes</i> de gastronomía (los consumos se atribuyen a gastronomía). Se liquida automáticamente al cerrar cada estadía, una sola vez. Los porcentajes deben sumar exactamente 100 %.</div>
+  <div class="notice info"><b>Subalquiler opcional:</b> se puede subalquilar <i>el camping completo</i>, o cualquier parcela, cabaña o instalación por separado (pileta, cada cancha, salón), y dejar de hacerlo cuando quiera. Lo que no se subalquila lo administra el club al 100 %. La gastronomía (cantina y mesas) siempre queda con el club.</div>
+  <div class="notice info mt-s"><b>Regla de liquidación:</b> en parcelas y cabañas la base es el alojamiento <i>después</i> de descuentos y <i>antes</i> de gastronomía; en pileta, canchas y salón es lo cobrado por cada entrada o reserva. Se liquida automáticamente (al cerrar la estadía o al cobrar el uso), una sola vez. Los porcentajes deben sumar exactamente 100 %.</div>
   <div class="kpis">
-    ${kpi('Unidades de terceros', us.length, `${S.propietarios.length} propietario(s)`)}
+    ${kpi('Subalquilado a terceros', us.length + insP.length, `${us.length} unidad(es) + ${insP.length} instalación(es) · ${S.propietarios.length} propietario(s)`)}
     ${kpi('Liquidaciones pendientes', pend.length, money(suma(pend, l => l.importeProp)), pend.length ? 'warn' : '')}
     ${kpi('Total liquidado a propietarios', money(suma(S.liquidaciones, l => l.importeProp)))}
     ${kpi('Comisiones del club', money(suma(S.liquidaciones, l => l.importeClub)), '', 'acc')}
   </div>
-  <div class="card"><h3>Unidades administradas <span class="row"><button class="btn sm" type="button" data-a="subalquilarUnidad" ${S.unidades.some(u => !u.propietarioId) ? '' : 'disabled'}>+ Subalquilar una parcela o cabaña</button> <button class="btn ghost sm" type="button" data-a="nuevaUnidadTercero" ${S.unidades.filter(u => u.clase === 'cabana').length >= APP.maxCabanas ? 'disabled title="Máximo de cabañas del mapa alcanzado"' : ''}>+ Nueva cabaña de tercero</button></span></h3>
+  <div class="card"><h3>Camping completo <span class="row"><button class="btn sm" type="button" data-a="subalquilarTodo" ${S.unidades.some(u => !u.propietarioId) || S.instalaciones.some(i => !i.propietarioId) ? '' : 'disabled'}>Subalquilar el camping completo</button></span></h3>
+    <p class="sub small">Asigna un mismo propietario y porcentaje a todo lo que hoy administra el club (parcelas, cabañas, pileta, canchas y salón). Lo ya subalquilado conserva su acuerdo y las unidades con estadía en curso se omiten.</p>
+    <div class="tw"><table><thead><tr><th>Propietario</th><th>Documento</th><th class="num">Unidades</th><th class="num">Instalaciones</th><th></th></tr></thead><tbody>
+    ${S.propietarios.map(p => { const nu = S.unidades.filter(u => u.propietarioId === p.id).length, ni = S.instalaciones.filter(i => i.propietarioId === p.id).length; return `<tr><td><b>${esc(p.nombre)}</b></td><td class="small">${esc(p.doc || '—')} (ficticio)</td><td class="num">${nu}</td><td class="num">${ni}</td><td>${nu + ni ? `<button class="btn ghost xs" type="button" data-a="quitarTodoProp" data-v="${p.id}">Dejar de subalquilar todo</button>` : ''}</td></tr>`; }).join('') || `<tr><td colspan="5">${vacio('Sin propietarios')}</td></tr>`}
+    </tbody></table></div></div>
+  <div class="card mt"><h3>Instalaciones <span class="row"><button class="btn sm" type="button" data-a="subalquilarInst" ${S.instalaciones.some(i => !i.propietarioId) ? '' : 'disabled'}>+ Subalquilar una instalación</button></span></h3>
+    <div class="tw"><table><thead><tr><th>Instalación</th><th>Propietario</th><th class="num">% propietario</th><th class="num">% club</th><th>Estado actual</th><th>Liquidación</th><th></th></tr></thead><tbody>
+    ${S.instalaciones.map(i => { const p = i.propietarioId ? propietario(i.propietarioId) : null; const liqs = S.liquidaciones.filter(l => l.usoId && l.unidadId === i.id); const lp = liqs.filter(l => l.estado !== 'Pagada').length;
+      return `<tr><td><b>${esc(i.nombre)}</b></td><td>${p ? esc(p.nombre) : '<span class="sub">Club (100 %)</span>'}</td><td class="num">${p ? i.pctProp + ' %' : '—'}</td><td class="num">${p ? i.pctClub + ' %' : '—'}</td><td>${pillInst(estadoInst(i))}</td><td>${p ? (lp ? `<span class="pill warn">${lp} pendiente(s) de pago</span>` : liqs.length ? '<span class="pill ok">Al día</span>' : '<span class="pill">Sin liquidaciones</span>') : '—'}</td>
+      <td><button class="btn ghost xs" type="button" data-a="subalquilarInst" data-v="${i.id}">${p ? 'Editar' : 'Subalquilar'}</button>${p ? ` <button class="btn ghost xs" type="button" data-a="quitarSubInst" data-v="${i.id}">Dejar de subalquilar</button>` : ''}</td></tr>`; }).join('')}
+    </tbody></table></div></div>
+  <div class="card mt"><h3>Unidades administradas <span class="row"><button class="btn sm" type="button" data-a="subalquilarUnidad" ${S.unidades.some(u => !u.propietarioId) ? '' : 'disabled'}>+ Subalquilar una parcela o cabaña</button> <button class="btn ghost sm" type="button" data-a="nuevaUnidadTercero" ${S.unidades.filter(u => u.clase === 'cabana').length >= APP.maxCabanas ? 'disabled title="Máximo de cabañas del mapa alcanzado"' : ''}>+ Nueva cabaña de tercero</button></span></h3>
     <div class="tw"><table><thead><tr><th>Unidad</th><th>Propietario</th><th>Tipo</th><th class="num">Tarifa / noche</th><th class="num">% propietario</th><th class="num">% club</th><th>Estado actual</th><th>Liquidación</th><th>Historial de estadías</th><th></th></tr></thead><tbody>
     ${us.map(u => { const p = propietario(u.propietarioId); const ests = S.estadias.filter(e => e.unidadId === u.id && e.estado !== 'cancelada'); const liqs = S.liquidaciones.filter(l => l.unidadId === u.id); const lp = liqs.filter(l => l.estado !== 'Pagada').length; const cerradasSinLiq = ests.filter(e => e.estado === 'cerrada' && !liqs.some(l => l.estadiaId === e.id)).length;
       return `<tr><td><b>${u.id}</b><div class="sub small">${esc(u.nombre)}</div></td><td>${esc(p.nombre)}<div class="sub tiny">Doc. ${esc(p.doc || '—')} (ficticio)</div></td><td>${u.tipoFijo ? esc(S.config.tipos[u.tipoFijo].nombre) : 'Parcela'}</td><td class="num">${u.tarifa ? money(u.tarifa) : '<span class="sub small">según tipo</span>'}</td><td class="num">${u.pctProp} %</td><td class="num">${u.pctClub} %</td><td>${pillUnidad(estadoUnidad(u))}</td>
@@ -2705,11 +2803,55 @@ VISTAS.subalquiler = () => {
       <td class="small">${ests.length ? ests.map(e => `<a href="#" data-a="verEstadia" data-v="${e.id}">${e.id}</a> <span class="sub">${ESTADO_EST_TXT[e.estado].split(' ')[0]}</span>`).join('<br>') : '—'}</td>
       <td><button class="btn ghost xs" type="button" data-a="editarUnidadTercero" data-v="${u.id}">Editar</button> <button class="btn ghost xs" type="button" data-a="quitarSubalquiler" data-v="${u.id}">Dejar de subalquilar</button></td></tr>`; }).join('') || `<tr><td colspan="10">${vacio('Sin unidades de terceros')}</td></tr>`}
     </tbody></table></div></div>
-  <div class="card mt"><h3>Liquidaciones</h3><div class="tw"><table><thead><tr><th>Liquidación</th><th>Fecha</th><th>Unidad</th><th>Estadía</th><th>Propietario</th><th class="num">Base</th><th class="num">Propietario</th><th class="num">Club</th><th>Estado</th><th></th></tr></thead><tbody>
-    ${S.liquidaciones.slice().reverse().map(l => `<tr><td class="mono">${l.id}</td><td>${fFechaHora(l.fecha)}</td><td>${l.unidadId}</td><td><a href="#" data-a="verEstadia" data-v="${l.estadiaId}">${l.estadiaId}</a></td><td>${esc(propietario(l.propietarioId).nombre)}</td><td class="num">${money(l.base)}</td><td class="num">${money(l.importeProp)} <span class="sub tiny">${l.pctProp} %</span></td><td class="num">${money(l.importeClub)} <span class="sub tiny">${l.pctClub} %</span></td><td>${l.estado === 'Pagada' ? `<span class="pill ok">Pagada ${fFecha(l.pago.fecha.slice(0, 10))}</span>` : '<span class="pill warn">Pendiente de pago</span>'}</td>
-      <td>${l.estado === 'Pagada' ? '' : `<button class="btn xs" type="button" data-a="pagarLiq" data-v="${l.id}">Registrar pago</button>`}</td></tr>`).join('') || `<tr><td colspan="10">${vacio('Sin liquidaciones', 'Se generan al cerrar estadías en unidades de terceros.')}</td></tr>`}
+  <div class="card mt"><h3>Liquidaciones</h3><div class="tw"><table><thead><tr><th>Liquidación</th><th>Fecha</th><th>Unidad / instalación</th><th>Estadía / uso</th><th>Propietario</th><th class="num">Base</th><th class="num">Propietario</th><th class="num">Club</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${S.liquidaciones.slice().reverse().map(l => `<tr><td class="mono">${l.id}</td><td>${fFechaHora(l.fecha)}</td><td>${esc(l.usoId ? (instalacion(l.unidadId) || { nombre: l.unidadId }).nombre : l.unidadId)}</td><td>${l.usoId ? `<a href="#" data-a="verUso" data-v="${l.usoId}">${l.usoId}</a>` : `<a href="#" data-a="verEstadia" data-v="${l.estadiaId}">${l.estadiaId}</a>`}</td><td>${esc(propietario(l.propietarioId).nombre)}</td><td class="num">${money(l.base)}</td><td class="num">${money(l.importeProp)} <span class="sub tiny">${l.pctProp} %</span></td><td class="num">${money(l.importeClub)} <span class="sub tiny">${l.pctClub} %</span></td><td>${l.estado === 'Pagada' ? `<span class="pill ok">Pagada ${fFecha(l.pago.fecha.slice(0, 10))}</span>` : '<span class="pill warn">Pendiente de pago</span>'}</td>
+      <td>${l.estado === 'Pagada' ? '' : `<button class="btn xs" type="button" data-a="pagarLiq" data-v="${l.id}">Registrar pago</button>`}</td></tr>`).join('') || `<tr><td colspan="10">${vacio('Sin liquidaciones', 'Se generan al cerrar estadías o cobrar usos en lo que está subalquilado.')}</td></tr>`}
   </tbody></table></div></div>`;
 };
+/** Campos comunes de propietario y porcentajes. */
+function camposSub(prop, pp, pc) {
+  return `<div class="field"><label>Propietario *</label><select name="propietarioId">${opciones(S.propietarios.map(p => [p.id, p.nombre]).concat([['__nuevo', '+ Nuevo propietario…']]), prop)}</select></div>
+      <div data-np class="g2"><div class="field"><label>Nombre del propietario</label><input name="propNombre" maxlength="60"></div><div class="field"><label>Documento (ficticio)</label><input name="propDoc" maxlength="14"></div></div>
+      <div class="g2"><div class="field"><label>% propietario *</label><input name="pctProp" type="number" min="0" max="100" step="0.01" value="${pp}"></div><div class="field"><label>% club *</label><input name="pctClub" type="number" min="0" max="100" step="0.01" value="${pc}"></div></div><div id="pctMsg"></div>`;
+}
+function enlazarSub(d, f, fn, msg) {
+  const upd = () => {
+    const fd = formData(f);
+    d.querySelector('[data-np]').style.display = fd.propietarioId === '__nuevo' ? '' : 'none';
+    const v = validarPorcentajes(fd.pctProp, fd.pctClub);
+    d.querySelector('#pctMsg').innerHTML = v.ok ? '<div class="notice ok">Los porcentajes suman 100 %.</div>' : `<div class="notice bad">${esc(v.motivo)}</div>`;
+  };
+  f.addEventListener('input', upd); f.addEventListener('change', upd); upd();
+  f.addEventListener('submit', ev => { ev.preventDefault(); const r = ejecutar(() => fn(formData(f)), msg); if (r) cerrarModal(); });
+}
+function modalSubInst(id) {
+  const libres = S.instalaciones.filter(i => !i.propietarioId);
+  const ex = id ? instalacion(id) : null;
+  if (!ex && !libres.length) return toast('Todas las instalaciones ya están subalquiladas.', 'info');
+  const sel = ex || libres[0];
+  const era = !!(ex && ex.propietarioId);
+  abrirModal({
+    titulo: era ? `Editar subalquiler — ${ex.nombre}` : ex ? `Subalquilar ${ex.nombre}` : 'Subalquilar una instalación', ancho: 'narrow',
+    cuerpo: `<form id="fSi" novalidate><div id="errSi"></div>
+      ${ex ? '' : `<div class="field"><label>Instalación *</label><select name="inst">${opciones(libres.map(i => [i.id, i.nombre]), libres[0].id)}</select></div>`}
+      <div class="notice info">El propietario cobra su porcentaje de cada entrada, alquiler o reserva cobrados, después del descuento de socio. Se liquida automáticamente.</div>
+      ${camposSub(sel.propietarioId || (S.propietarios[0] ? S.propietarios[0].id : '__nuevo'), sel.pctProp ?? S.config.pctPropietario, sel.pctClub ?? S.config.pctClub)}</form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button>${era ? `<button class="btn ghost" type="button" data-a="quitarSubInst" data-v="${ex.id}">Dejar de subalquilar</button>` : ''}<button class="btn" type="submit" form="fSi">${era ? 'Guardar' : 'Subalquilar'}</button>`,
+    onBind: d => enlazarSub(d, d.querySelector('#fSi'), fd => guardarSubInst(fd, id || fd.inst), () => 'Subalquiler guardado.')
+  });
+}
+function modalSubTodo() {
+  const un = S.unidades.filter(u => !u.propietarioId), ins = S.instalaciones.filter(i => !i.propietarioId);
+  abrirModal({
+    titulo: 'Subalquilar el camping completo', ancho: 'narrow',
+    cuerpo: `<form id="fSt" novalidate><div id="errSt"></div>
+      <div class="notice info">Se subalquilarán <b>${un.length}</b> parcela(s)/cabaña(s) y <b>${ins.length}</b> instalación(es) (${esc(ins.map(i => i.nombre).join(', ') || 'ninguna')}) con el mismo propietario y porcentaje. Lo que ya está subalquilado conserva su acuerdo; las unidades con estadía en curso se omiten. La gastronomía queda con el club.</div>
+      ${camposSub(S.propietarios[0] ? S.propietarios[0].id : '__nuevo', S.config.pctPropietario, S.config.pctClub)}
+      <p class="sub small">Podés revertirlo desde «Dejar de subalquilar todo» y ajustar cada lugar por separado después.</p></form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fSt">Subalquilar todo</button>`,
+    onBind: d => enlazarSub(d, d.querySelector('#fSt'), subalquilarTodo, x => `Camping subalquilado a ${x.prop.nombre}: ${x.n} lugar(es)${x.omitidas.length ? '; omitidos por estadía en curso: ' + x.omitidas.join(', ') : ''}.`)
+  });
+}
 function modalSubalquilarUnidad() {
   const libres = S.unidades.filter(u => !u.propietarioId);
   if (!libres.length) return toast('Todas las unidades ya están subalquiladas.', 'info');
@@ -2763,7 +2905,7 @@ function metricasInst() {
   const h = hoy();
   const cobrados = S.usos.filter(usoCobrado);
   const cobradosHoy = cobrados.filter(u => u.cobro.fecha.slice(0, 10) === h);
-  const ing = saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor;
+  const ing = saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor + liqUsosProp();
   return {
     ingBruto: ing, descuentos: saldoCuenta('DESC_INS').deudor, ingNeto: ing - saldoCuenta('DESC_INS').deudor,
     ingHoy: suma(cobradosHoy, u => u.calc.total), nHoy: cobradosHoy.length,
@@ -2841,17 +2983,29 @@ function svgInst() {
     <rect x="418" y="396" width="274" height="150" rx="6" fill="#1f56a0" stroke="#a7dcef" stroke-width="4"/>
     <g ${linea}><path d="M555 396 V546" stroke-dasharray="4 3" stroke-width="3"/><path d="M458 396 V546 M652 396 V546 M458 471 H652"/></g>
     ${rotulo(555, 464, 'PAD', 'Pádel')}`);
-  // --- Edificios ---
-  s += `<g opacity=".92"><rect x="740" y="360" width="220" height="72" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="392" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Vestuarios y sanitarios</text><text x="850" y="410" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Duchas · lockers</text>
-    <rect x="740" y="446" width="220" height="64" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="476" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Cantina y quincho</text><text x="850" y="494" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Consumos a la parcela</text>
-    <rect x="740" y="524" width="220" height="56" rx="10" fill="none" stroke="#4d6157" stroke-dasharray="7 6"/><text x="850" y="557" text-anchor="middle" fill="#9fb4a9" font-size="12">Estacionamiento</text></g>`;
+  // --- Edificios y salón ---
+  s += `<g opacity=".92"><rect x="740" y="360" width="220" height="50" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="383" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Vestuarios y sanitarios</text><text x="850" y="399" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Duchas · lockers</text>
+    <rect x="740" y="418" width="220" height="50" rx="10" fill="#2b3a33" stroke="#4d6157"/><text x="850" y="441" text-anchor="middle" fill="#cfe0d6" font-size="13" font-weight="600">Cantina y quincho</text><text x="850" y="457" text-anchor="middle" fill="#9fb4a9" font-size="11.5">Consumos a la parcela</text></g>`;
+  s += grupo('SAL', 740, 478, 220, 102, `
+    <rect x="740" y="478" width="220" height="102" rx="14" fill="#3a3326"/><rect x="752" y="506" width="196" height="62" rx="8" fill="#5a4a30" stroke="#c9b48a" stroke-width="2"/>
+    <g fill="#e9dcc0" opacity=".55">${[0, 1, 2, 3, 4].map(k => `<circle cx="${775 + k * 38}" cy="537" r="9"/>`).join('')}</g>
+    ${rotulo(850, 548, 'SAL', 'Salón').replace('font-size="25"', 'font-size="19"')}`);
   return s + '</svg>';
 }
 const leyendaInst = () => `<div class="legend">${['libre', 'ocupada', 'reservada', 'mantenimiento'].map(st => `<span><span class="dot" style="background:${COLORES[st]};width:12px;height:12px"></span>${INST_ESTADO_TXT[st]}</span>`).join('')}</div>`;
 function listaUsos(arr, conFecha) {
   return arr.length ? `<div class="list">${arr.map(u => `<div class="it" data-a="verUso" data-v="${u.id}" tabindex="0"><span class="small"><b>${conFecha ? fFecha(u.fecha).slice(0, 5) + ' · ' : ''}${u.desde}–${u.hasta}</b> · ${esc(nombreUso(u))}${u.sena && !u.sena.devuelta && !u.sena.aplicada ? ' <span class="sub tiny">(seña ' + sinCentavos(u.sena.importe) + ')</span>' : ''}</span>${pillUso(u.estado)}</div>`).join('')}</div>` : '<p class="sub small">Sin reservas.</p>';
 }
+function subInstHtml(i) {
+  const p = i.propietarioId ? propietario(i.propietarioId) : null;
+  return `<div class="h3 mt2">Subalquiler</div>${p ? `<div class="notice info">Subalquilada a <b>${esc(p.nombre)}</b> (${i.pctProp} % propietario / ${i.pctClub} % club). Cada cobro se liquida automáticamente.</div>` : '<p class="sub small">La administra el club al 100 %. Puede subalquilarse como opción.</p>'}
+    <button class="btn ghost sm" type="button" data-a="subalquilarInst" data-v="${i.id}">${p ? 'Editar subalquiler' : 'Subalquilar'}</button>`;
+}
 function panelInst() {
+  const h = panelInstBase(), i = UI.selInst ? instalacion(UI.selInst) : null;
+  return i && !i.mantenimiento ? h.replace(/<\/div>$/, subInstHtml(i) + '</div>') : h;
+}
+function panelInstBase() {
   const i = UI.selInst ? instalacion(UI.selInst) : null;
   if (!i) return `<div class="card">${vacio('Ninguna instalación seleccionada', 'Toque la pileta o una cancha del mapa para ver su detalle u operar.')}</div>`;
   const st = estadoInst(i), I = S.config.inst, h = hoy();
@@ -2887,10 +3041,10 @@ function panelInst() {
   const C = I.canchas[i.clase];
   return `<div class="card detail">${head}<dl>
     <dt>Precio por hora</dt><dd>${money(C.precioHora)}</dd>
-    <dt>Desde las ${I.nocturnoDesde} (iluminación)</dt><dd>${money(C.precioHora + pct(C.precioHora, I.recargoNocturno))}</dd>
+    ${C.sinNoct ? '' : `<dt>Desde las ${I.nocturnoDesde} (iluminación)</dt><dd>${money(C.precioHora + pct(C.precioHora, I.recargoNocturno))}</dd>`}
     <dt>Horario</dt><dd>${I.apertura} a ${I.cierre}</dd>
     <dt>Duración máxima</dt><dd>${C.maxHoras} h</dd>
-    <dt>Jugadores</dt><dd>hasta ${C.capacidad}</dd>
+    <dt>${C.sinNoct ? 'Capacidad' : 'Jugadores'}</dt><dd>hasta ${C.capacidad}${C.sinNoct ? ' personas' : ''}</dd>
     <dt>Descuento</dt><dd>${esc(desc)}</dd></dl>
     <div class="col mt">
       <button class="btn big block" type="button" data-a="nuevoUso" data-v="${i.id}">Nueva reserva</button>
@@ -2903,7 +3057,7 @@ function vistaAgenda() {
   const I = S.config.inst, f = UI.f;
   const fecha = esFechaISO(f.depFecha) ? f.depFecha : hoy();
   const esHoy = fecha === hoy(), now = hm(horaActual());
-  const ids = ['F5', 'F11', 'PAD'];
+  const ids = S.instalaciones.filter(i => i.clase !== 'pileta').map(i => i.id);
   const horas = []; for (let m = hm(I.apertura); m < hm(I.cierre); m += 60) horas.push(m);
   const celda = (iid, m) => {
     const ins = instalacion(iid), C = I.canchas[ins.clase];
@@ -2911,7 +3065,7 @@ function vistaAgenda() {
     const u = usosDe(iid, fecha).find(x => hm(x.desde) <= m && m < hm(x.hasta));
     if (u) return `<td class="slot ${u.estado}" data-a="verUso" data-v="${u.id}">${hm(u.desde) === m ? `<b>${esc(nombreUso(u))}</b> <span class="sub tiny">${u.horas} h</span><div class="mt-s">${pillUso(u.estado)}</div>` : '<span class="sub tiny">↳ continúa</span>'}</td>`;
     if (fecha < hoy() || (esHoy && m + 60 <= now)) return '<td class="slot past">—</td>';
-    const noct = m >= hm(I.nocturnoDesde);
+    const noct = !C.sinNoct && m >= hm(I.nocturnoDesde);
     return `<td class="slot free"><button class="slotbtn" type="button" data-a="nuevoUsoSlot" data-v="${iid}|${fecha}|${deMin(m)}">Libre · ${sinCentavos(C.precioHora + (noct ? pct(C.precioHora, I.recargoNocturno) : 0))}${noct ? ' <span class="tiny">luz</span>' : ''}</button></td>`;
   };
   const P = I.pileta, pil = instalacion('PIL');
@@ -3185,7 +3339,7 @@ VISTAS.caja = () => {
     ['Anticipos de clientes = Σ anticipos de estadías + señas de pileta y canchas sin aplicar', sc('ANT').acreedor, antPend + senasPendientesUsos()],
     ['Cuentas por pagar a propietarios = Σ liquidaciones pendientes', sc('PROP').acreedor, liqPend],
     ['Ingresos por gastronomía = Σ tickets cerrados', sc('ING_GAS').acreedor, suma(S.tickets.filter(t => t.estado === 'pagado' || t.estado === 'imputado'), totalTicket)],
-    ['Ingresos por pileta y canchas = Σ entradas y reservas cobradas (bruto)', sc('ING_PIL').acreedor + sc('ING_CAN').acreedor, suma(S.usos.filter(usoCobrado), u => u.calc.subtotal)],
+    ['Ingresos por pileta, canchas y salones = Σ entradas y reservas cobradas (bruto) − parte liquidada a propietarios', sc('ING_PIL').acreedor + sc('ING_CAN').acreedor, suma(S.usos.filter(usoCobrado), u => u.calc.subtotal) - liqUsosProp()],
     ['Descuentos de pileta y canchas = Σ descuentos de socio aplicados', sc('DESC_INS').deudor, suma(S.usos.filter(usoCobrado), u => u.calc.descuento)]
   ];
   const tabs = [['diario', 'Libro diario'], ['balance', 'Sumas y saldos'], ['tesoreria', 'Caja y bancos'], ['politica', 'Política contable']];
@@ -3295,7 +3449,7 @@ VISTAS.reportes = () => {
       <div class="card s5"><h3>Por cliente</h3>${barras(Object.entries(porCli).map(([cid, v]) => [esc(nombreCliente(cliente(cid))), v]), suma(Object.values(porCli)))}</div></div>`;
   } else if (tab === 'liquidaciones') {
     const ls = S.liquidaciones.filter(l => enRango(l.fecha));
-    body = `<div class="card"><h3>Liquidaciones a propietarios</h3>${ls.length ? `<div class="tw"><table><thead><tr><th>Liquidación</th><th>Fecha</th><th>Unidad</th><th>Propietario</th><th class="num">Base</th><th class="num">Propietario</th><th class="num">Club</th><th>Estado</th></tr></thead><tbody>${ls.map(l => `<tr><td class="mono">${l.id}</td><td>${fFechaHora(l.fecha)}</td><td>${l.unidadId}</td><td>${esc(propietario(l.propietarioId).nombre)}</td><td class="num">${money(l.base)}</td><td class="num">${money(l.importeProp)}</td><td class="num">${money(l.importeClub)}</td><td>${l.estado === 'Pagada' ? '<span class="pill ok">Pagada</span>' : '<span class="pill warn">Pendiente</span>'}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="4">Totales</td><td class="num">${money(suma(ls, l => l.base))}</td><td class="num">${money(suma(ls, l => l.importeProp))}</td><td class="num">${money(suma(ls, l => l.importeClub))}</td><td></td></tr></tfoot></table></div>` : vacio('Sin liquidaciones en el período')}</div>`;
+    body = `<div class="card"><h3>Liquidaciones a propietarios</h3>${ls.length ? `<div class="tw"><table><thead><tr><th>Liquidación</th><th>Fecha</th><th>Unidad</th><th>Propietario</th><th class="num">Base</th><th class="num">Propietario</th><th class="num">Club</th><th>Estado</th></tr></thead><tbody>${ls.map(l => `<tr><td class="mono">${l.id}</td><td>${fFechaHora(l.fecha)}</td><td>${esc(l.usoId ? (instalacion(l.unidadId) || { nombre: l.unidadId }).nombre : l.unidadId)}</td><td>${esc(propietario(l.propietarioId).nombre)}</td><td class="num">${money(l.base)}</td><td class="num">${money(l.importeProp)}</td><td class="num">${money(l.importeClub)}</td><td>${l.estado === 'Pagada' ? '<span class="pill ok">Pagada</span>' : '<span class="pill warn">Pendiente</span>'}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="4">Totales</td><td class="num">${money(suma(ls, l => l.base))}</td><td class="num">${money(suma(ls, l => l.importeProp))}</td><td class="num">${money(suma(ls, l => l.importeClub))}</td><td></td></tr></tfoot></table></div>` : vacio('Sin liquidaciones en el período')}</div>`;
   } else {
     const as = S.asientos.filter(a => enRango(a.fecha));
     const porCuenta = Object.entries(CUENTAS).map(([k, c]) => { let d = 0, h = 0; as.forEach(a => a.lineas.forEach(l => { if (l.cuenta === k) { d += l.debe; h += l.haber; } })); return [c, d, h]; }).filter(x => x[1] || x[2]);
@@ -3451,9 +3605,9 @@ VISTAS.config = () => {
         <p class="sub small">Restablecer elimina todos los movimientos del usuario y vuelve al estado inicial con fechas relativas a hoy.</p></div></div></div>`;
   } else {
     const t = UI.tests;
-    body = `<div class="card"><h3>Pruebas funcionales (15 del sistema base + 8 de pileta y canchas + 2 de socios + 1 de subalquiler) <button class="btn sm" type="button" data-a="runTests">Ejecutar las 26 pruebas</button></h3>
+    body = `<div class="card"><h3>Pruebas funcionales (15 del sistema base + 8 de pileta y canchas + 2 de socios + 2 de subalquiler) <button class="btn sm" type="button" data-a="runTests">Ejecutar las 27 pruebas</button></h3>
       <p class="sub small mb">Cada prueba corre sobre una copia aislada de los datos de demostración: no modifica su información.</p>
-      ${t ? `<div class="notice ${t.every(x => x.ok) ? 'ok' : 'bad'}">${t.filter(x => x.ok).length} de ${t.length} pruebas superadas.</div><div class="tw"><table class="tres"><thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${t.map(x => `<tr><td>${x.n}</td><td>${esc(x.nombre)}</td><td>${x.ok ? '<span class="pill ok">✓ OK</span>' : '<span class="pill bad">✕ Falla</span>'}</td><td class="small">${esc(x.detalle)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Aún no se ejecutaron', 'Presione «Ejecutar las 23 pruebas».')}</div>`;
+      ${t ? `<div class="notice ${t.every(x => x.ok) ? 'ok' : 'bad'}">${t.filter(x => x.ok).length} de ${t.length} pruebas superadas.</div><div class="tw"><table class="tres"><thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${t.map(x => `<tr><td>${x.n}</td><td>${esc(x.nombre)}</td><td>${x.ok ? '<span class="pill ok">✓ OK</span>' : '<span class="pill bad">✕ Falla</span>'}</td><td class="small">${esc(x.detalle)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Aún no se ejecutaron', 'Presione «Ejecutar las 27 pruebas».')}</div>`;
   }
   return `<div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab ${tab === k ? 'on' : ''}" type="button" role="tab" aria-selected="${tab === k}" data-a="tabConfig" data-v="${k}">${l}</button>`).join('')}</div>${body}`;
 };
@@ -3566,6 +3720,32 @@ function ejecutarPruebas() {
       const e2 = transaccion(() => crearEstadia({ unidadId: 'P04', clienteId: 'C-006', ingreso: sumarDias(H, 3), salida: sumarDias(H, 4), personas: 1, vehiculos: 0, tipo: 'carpa' }));
       esperar(!previstaCierreSinLiq(e2), 'sin propietario no genera liquidación');
       return `P04 se subalquiló 55/45: ${money(l.importeProp)} al propietario y ${money(l.importeClub)} al club; luego volvió al club sin perder la liquidación.`;
+    })],
+    ['Pileta, canchas y salón se subalquilan por separado y el camping completo de una vez', () => enSandbox(() => {
+      esperar(!instalacion('PIL').propietarioId && !instalacion('SAL').propietarioId && instalacion('PAD').propietarioId === 'PR-02', 'estado inicial');
+      transaccion(() => guardarSubInst({ propietarioId: 'PR-01', pctProp: 60, pctClub: 40 }, 'SAL'));
+      esperar(lanza(() => guardarSubInst({ propietarioId: 'PR-01', pctProp: 60, pctClub: 30 }, 'SAL')), 'no suma 100');
+      const f = H;
+      const u = transaccion(() => crearUso({ inst: 'SAL', fecha: f, desde: '15:00', horas: 4, nombre: 'Cumpleaños de 15 (ficticio)' }));
+      esperar(u.calc.total === 18000000 && u.calc.detalleHoras.every(x => !x.noct), 'el salón no cobra recargo nocturno: ' + u.calc.total);
+      CLOCK.override = `${f}T14:30`;
+      const ing0 = saldoCuenta('ING_CAN').acreedor;
+      transaccion(() => cobrarUso(u.id, { modo: 'pago', medio: 'efectivo' }));
+      const l = S.liquidaciones.find(x => x.usoId === u.id);
+      esperar(l && l.propietarioId === 'PR-01' && l.base === 18000000 && l.importeProp === 10800000 && l.importeClub === 7200000, 'liquida 60/40 sobre lo cobrado');
+      esperar(saldoCuenta('ING_CAN').acreedor === ing0 + 18000000 - 10800000, 'el ingreso del club queda neto de la parte del propietario');
+      esperar(lanza(() => liquidarUsoTercero(uso(u.id), instalacion('SAL'))), 'no se liquida dos veces');
+      const mal = S.asientos.filter(a => suma(a.lineas, l2 => l2.debe) !== suma(a.lineas, l2 => l2.haber));
+      esperar(!mal.length, 'asientos descuadrados');
+      const r = transaccion(() => subalquilarTodo({ propietarioId: 'PR-02', pctProp: 70, pctClub: 30 }));
+      esperar(S.unidades.every(x => x.propietarioId || estadiaActivaDeUnidad(x.id)) && S.instalaciones.every(x => x.propietarioId) && r.omitidas.every(id => estadiaActivaDeUnidad(id)), 'todo subalquilado salvo estadías en curso');
+      esperar(instalacion('SAL').propietarioId === 'PR-01' && instalacion('SAL').pctProp === 60, 'lo ya subalquilado conserva su acuerdo');
+      esperar(lanza(() => subalquilarTodo({ propietarioId: 'PR-02', pctProp: 70, pctClub: 40 })), 'porcentajes inválidos');
+      transaccion(() => dejarTodoDe('PR-02'));
+      esperar(S.instalaciones.filter(x => x.propietarioId === 'PR-02').length === 0 && instalacion('SAL').propietarioId === 'PR-01', 'revierte sólo lo del propietario');
+      transaccion(() => dejarDeSubalquilarInst('SAL'));
+      esperar(!instalacion('SAL').propietarioId && S.liquidaciones.some(x => x.id === l.id), 'vuelve al club conservando la liquidación');
+      return `Salón 60/40: ${money(l.importeProp)} al propietario y ${money(l.importeClub)} al club; camping completo subalquilado (${r.n} lugares) y revertido.`;
     })],
     ['Porcentajes de liquidación deben sumar 100 %', () => enSandbox(() => {
       esperar(!validarPorcentajes(70, 20).ok && validarPorcentajes(70, 30).ok && validarPorcentajes(62.5, 37.5).ok, 'validador');
@@ -3693,7 +3873,7 @@ function ejecutarPruebas() {
       esperar(!mal.length, 'asientos descuadrados');
       const antPend = suma(S.pagos.filter(p => p.tipo === 'anticipo' && !p.aplicado && !p.devuelto), p => p.importe);
       esperar(saldoCuenta('ANT').acreedor === antPend + senasPendientesUsos(), 'control de anticipos');
-      esperar(saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor === suma(S.usos.filter(usoCobrado), x => x.calc.subtotal), 'control de ingresos');
+      esperar(saldoCuenta('ING_PIL').acreedor + saldoCuenta('ING_CAN').acreedor === suma(S.usos.filter(usoCobrado), x => x.calc.subtotal) - liqUsosProp(), 'control de ingresos');
       esperar(saldoCuenta('DESC_INS').deudor === suma(S.usos.filter(usoCobrado), x => x.calc.descuento), 'control de descuentos');
       return `Total ${money(18000000)}: seña ${money(3000000)} aplicada y ${money(15000000)} cobrados en efectivo; segundo cobro rechazado; controles contables coinciden.`;
     })],
@@ -3840,6 +4020,20 @@ const ACCIONES = {
   editarProducto: v => modalProducto(v),
   toggleProducto: v => ejecutar(() => toggleProducto(v), p => `${p.nombre} ${p.activo ? 'activado' : 'desactivado'}.`),
   nuevaUnidadTercero: () => modalUnidadTercero(null),
+  subalquilarInst: v => modalSubInst(v || null),
+  subalquilarTodo: () => modalSubTodo(),
+  quitarSubInst: async v => {
+    const i = instalacion(v); if (!i || !i.propietarioId) return;
+    const ok = await confirmar({ titulo: 'Dejar de subalquilar', html: `<p><b>${esc(i.nombre)}</b> volverá a administrarse por el club al 100 %. Las liquidaciones ya generadas se conservan y se siguen pagando.</p>`, ok: 'Dejar de subalquilar' });
+    if (!ok) return;
+    if (ejecutar(() => dejarDeSubalquilarInst(v), x => `${x.ins.nombre} vuelve a administración propia.`)) cerrarModal();
+  },
+  quitarTodoProp: async v => {
+    const p = propietario(v); if (!p) return;
+    const ok = await confirmar({ titulo: 'Dejar de subalquilar todo', html: `<p>Todo lo que subalquila <b>${esc(p.nombre)}</b> volverá al club al 100 %. Las unidades con estadía en curso siguen con él hasta el check-out. Las liquidaciones ya generadas se conservan.</p>`, ok: 'Dejar de subalquilar todo' });
+    if (!ok) return;
+    ejecutar(() => dejarTodoDe(v), x => `${x.n} lugar(es) vuelven al club${x.omitidas.length ? '; siguen por estadía en curso: ' + x.omitidas.join(', ') : ''}.`);
+  },
   subalquilarUnidad: v => v ? modalUnidadTercero(v) : modalSubalquilarUnidad(),
   quitarSubalquiler: async v => {
     const u = unidad(v); if (!u || !u.propietarioId) return;
@@ -3851,7 +4045,7 @@ const ACCIONES = {
   editarUnidadTercero: v => modalUnidadTercero(v),
   pagarLiq: v => {
     const l = porId(S.liquidaciones, v); if (!l) return;
-    abrirModal({ titulo: `Pagar liquidación ${l.id}`, ancho: 'narrow', cuerpo: `<form id="fPl" novalidate><p>Pago a <b>${esc(propietario(l.propietarioId).nombre)}</b> por <b>${money(l.importeProp)}</b> (estadía ${l.estadiaId}).</p><div class="field mt"><label>Medio</label><select name="medio">${opciones(Object.entries(MEDIOS).map(([k, m]) => [k, m.nombre]), 'transferencia')}</select></div><p class="sub small">Asiento: Debe Cuentas por pagar a propietarios · Haber Caja/Banco.</p></form>`, pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fPl">Registrar pago</button>`, onBind: d => d.querySelector('#fPl').addEventListener('submit', ev => { ev.preventDefault(); ev.submitter && (ev.submitter.disabled = true); if (ejecutar(() => pagarLiquidacion(v, formData(ev.target).medio), `Liquidación ${v} pagada.`)) cerrarModal(); }) });
+    abrirModal({ titulo: `Pagar liquidación ${l.id}`, ancho: 'narrow', cuerpo: `<form id="fPl" novalidate><p>Pago a <b>${esc(propietario(l.propietarioId).nombre)}</b> por <b>${money(l.importeProp)}</b> (${l.usoId ? 'uso ' + l.usoId : 'estadía ' + l.estadiaId}).</p><div class="field mt"><label>Medio</label><select name="medio">${opciones(Object.entries(MEDIOS).map(([k, m]) => [k, m.nombre]), 'transferencia')}</select></div><p class="sub small">Asiento: Debe Cuentas por pagar a propietarios · Haber Caja/Banco.</p></form>`, pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fPl">Registrar pago</button>`, onBind: d => d.querySelector('#fPl').addEventListener('submit', ev => { ev.preventDefault(); ev.submitter && (ev.submitter.disabled = true); if (ejecutar(() => pagarLiquidacion(v, formData(ev.target).medio), `Liquidación ${v} pagada.`)) cerrarModal(); }) });
   },
   quitarTemporada: async v => { const ok = await confirmar({ titulo: 'Quitar período', peligro: true, ok: 'Quitar', html: '<p>El período dejará de aplicarse a nuevos cálculos. Las estadías existentes no cambian.</p>' }); if (ok) ejecutar(() => quitarTemporada(v), 'Período eliminado.'); },
   limpiarFiltrosAs: () => { Object.assign(UI.f, { asDesde: '', asHasta: '', asCuenta: '', asQ: '', asOrigen: '' }); render(); },
