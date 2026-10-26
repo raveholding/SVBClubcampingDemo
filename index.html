@@ -500,7 +500,8 @@ function datosBase(h) {
       { id: 'C-006', nombre: 'Diego', apellido: 'Martín', doc: '28.776.430', tel: '+54 351 555-0106', email: 'diego.m@ejemplo.test', categoria: 'Cliente externo', esSocio: false, estadoSocio: 'No socio', cuotaVence: '' }
     ],
     propietarios: [
-      { id: 'PR-01', nombre: 'Hernán Sosa', doc: '20.111.222', tel: '+54 387 555-0201', cbu: '0000003100000000000001 (ficticio)' }
+      { id: 'PR-01', nombre: 'Hernán Sosa', doc: '20.111.222', tel: '+54 387 555-0201', cbu: '0000003100000000000001 (ficticio)' },
+      { id: 'PR-02', nombre: 'Marcela Quiroga', doc: '23.456.789', tel: '+54 387 555-0202', cbu: '0000003100000000000002 (ficticio)' }
     ],
     unidades: [
       { id: 'P01', nombre: 'Parcela P01', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: null, slot: 'P01' },
@@ -508,7 +509,7 @@ function datosBase(h) {
       { id: 'P03', nombre: 'Parcela P03', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: true, motivoMant: 'Reparación de toma eléctrica y nivelación', propietarioId: null, slot: 'P03' },
       { id: 'P04', nombre: 'Parcela P04', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: null, slot: 'P04' },
       { id: 'P05', nombre: 'Parcela P05', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: null, slot: 'P05' },
-      { id: 'P06', nombre: 'Parcela P06', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: null, slot: 'P06' },
+      { id: 'P06', nombre: 'Parcela P06', clase: 'parcela', tipoFijo: null, tarifa: null, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: 'PR-02', pctProp: 60, pctClub: 40, slot: 'P06' },
       { id: 'CAB-01', nombre: 'Cabaña Los Alisos', clase: 'cabana', tipoFijo: 'cabana', tarifa: 7500000, maxPers: 6, maxVeh: 2, mantenimiento: false, motivoMant: '', propietarioId: 'PR-01', pctProp: 70, pctClub: 30, slot: 'C1' }
     ],
     productos: [
@@ -543,7 +544,7 @@ function estadoVacio(h) {
     instalaciones: instalacionesBase(),
     estadias: [], pagos: [], cargos: [], tickets: [], liquidaciones: [], asientos: [], usos: [], solicitudes: [], log: [],
     opsHechas: {},
-    seq: { cli: 6, est: 0, pag: 0, car: 0, tic: 0, lin: 0, as: 0, liq: 0, op: 0, prod: 9, prop: 1, uso: 0, sol: 0 }
+    seq: { cli: 6, est: 0, pag: 0, car: 0, tic: 0, lin: 0, as: 0, liq: 0, op: 0, prod: 9, prop: 2, uso: 0, sol: 0 }
   };
 }
 /** Construye el estado inicial de demostración ejecutando operaciones reales. */
@@ -1331,16 +1332,22 @@ function pagarLiquidacion(id, medio) {
   bitacora(`Liquidación ${l.id} pagada al propietario (${money(l.importeProp)})`, l.id);
   return l;
 }
+function esCabana(u) { return u.clase === 'cabana'; }
+/** Alta/edición de una unidad de terceros. Cualquier parcela o cabaña existente puede subalquilarse; las cabañas nuevas se crean ya subalquiladas. */
 function guardarUnidadTercero(d, id) {
   const errs = [];
-  const nombre = limpiar(d.nombre, 50);
-  const tarifa = aCentavos(d.tarifa);
-  if (!nombre) errs.push('Indique el nombre de la unidad.');
-  if (!(tarifa > 0)) errs.push('La tarifa por noche debe ser mayor a cero.');
+  const u0 = id ? unidad(id) : null;
+  if (id && !u0) throw new ErrNegocio('Unidad inexistente.');
+  const cab = !u0 || esCabana(u0);
+  const nombre = cab ? limpiar(d.nombre, 50) : u0.nombre;
+  const tarifa = cab ? aCentavos(d.tarifa) : u0.tarifa;
+  if (cab && !nombre) errs.push('Indique el nombre de la unidad.');
+  if (cab && !(tarifa > 0)) errs.push('La tarifa por noche debe ser mayor a cero.');
   const v = validarPorcentajes(d.pctProp, d.pctClub);
   if (!v.ok) errs.push(v.motivo);
-  const maxPers = entero(d.maxPers);
-  if (!(maxPers >= 1 && maxPers <= 12)) errs.push('Capacidad de personas inválida (1 a 12).');
+  const maxPers = cab ? entero(d.maxPers) : u0.maxPers;
+  if (cab && !(maxPers >= 1 && maxPers <= 12)) errs.push('Capacidad de personas inválida (1 a 12).');
+  if (u0 && estadiaActivaDeUnidad(u0.id)) errs.push(`${u0.id} tiene una estadía en curso: cambie el subalquiler después del check-out.`);
   let prop = propietario(d.propietarioId);
   if (d.propietarioId === '__nuevo') {
     const pn = limpiar(d.propNombre, 60);
@@ -1348,11 +1355,11 @@ function guardarUnidadTercero(d, id) {
     if (!errs.length) { prop = { id: nextId('prop', 'PR', 2), nombre: pn, doc: limpiar(d.propDoc, 14), tel: limpiar(d.propTel, 25), cbu: '' }; S.propietarios.push(prop); }
   } else if (!prop) errs.push('Seleccione un propietario.');
   if (errs.length) throw new ErrNegocio(errs.join(' '));
-  if (id) {
-    const u = unidad(id); if (!u) throw new ErrNegocio('Unidad inexistente.');
-    Object.assign(u, { nombre, tarifa, pctProp: Number(d.pctProp), pctClub: Number(d.pctClub), maxPers, propietarioId: prop.id });
-    bitacora(`Unidad ${u.id} actualizada (${u.pctProp}/${u.pctClub})`, u.id);
-    return u;
+  if (u0) {
+    const eraTercero = !!u0.propietarioId;
+    Object.assign(u0, { nombre, tarifa, pctProp: Number(d.pctProp), pctClub: Number(d.pctClub), maxPers, propietarioId: prop.id });
+    bitacora(eraTercero ? `Subalquiler de ${u0.id} actualizado (${u0.pctProp}/${u0.pctClub})` : `${u0.id} pasa a subalquilarse (${prop.nombre}, ${u0.pctProp}/${u0.pctClub})`, u0.id);
+    return u0;
   }
   const cabs = S.unidades.filter(u => u.clase === 'cabana');
   if (cabs.length >= APP.maxCabanas) throw new ErrNegocio(`El mapa de la demo admite hasta ${APP.maxCabanas} cabañas.`);
@@ -1362,6 +1369,19 @@ function guardarUnidadTercero(d, id) {
   S.unidades.push(u);
   bitacora(`Nueva unidad de tercero ${u.id} (${prop.nombre})`, u.id);
   return u;
+}
+/** Vuelve una unidad a administración propia del club. Las liquidaciones ya generadas conservan su propietario. */
+function previstaCierreSinLiq(e) { const u = unidad(e.unidadId); return !!u.propietarioId; }
+function dejarDeSubalquilar(id) {
+  const u = unidad(id);
+  if (!u) throw new ErrNegocio('Unidad inexistente.');
+  if (!u.propietarioId) throw new ErrNegocio(`${u.id} no está subalquilada.`);
+  if (estadiaActivaDeUnidad(u.id)) throw new ErrNegocio(`${u.id} tiene una estadía en curso: hágalo después del check-out.`);
+  const pend = S.estadias.filter(e => e.unidadId === u.id && e.estado === 'reservada').length;
+  const nom = propietario(u.propietarioId).nombre;
+  u.propietarioId = null; u.pctProp = null; u.pctClub = null;
+  bitacora(`${u.id} deja de subalquilarse (era de ${nom})${pend ? `; ${pend} reserva(s) futura(s) se cobrarán sin liquidación` : ''}`, u.id);
+  return { u, pend };
 }
 function guardarConfig(d) {
   const errs = [];
@@ -2197,7 +2217,8 @@ function panelUnidad() {
   if (st === 'mantenimiento') {
     return `<div class="card detail">${head}<dl><dt>Código</dt><dd><b>${esc(u.id)}</b></dd><dt>Motivo</dt><dd>${esc(u.motivoMant || '—')}</dd></dl>
       <div class="notice warn mt">Unidad en mantenimiento: no admite check-in ni reservas hasta finalizarlo.</div>${resHtml}
-      <button class="btn block" type="button" data-a="finMant" data-v="${u.id}">Finalizar mantenimiento</button></div>`;
+      <button class="btn block" type="button" data-a="finMant" data-v="${u.id}">Finalizar mantenimiento</button>
+      <button class="btn ghost sm block mt" type="button" data-a="subalquilarUnidad" data-v="${u.id}">${u.propietarioId ? 'Editar subalquiler' : 'Subalquilar esta unidad'}</button></div>`;
   }
   const tarifa = u.tarifa ? money(u.tarifa) + ' / noche' : 'Según tipo de alojamiento';
   return `<div class="card detail">${head}<dl><dt>Código</dt><dd><b>${esc(u.id)}</b></dd><dt>Capacidad</dt><dd>${u.maxPers} personas · ${u.maxVeh} vehículos</dd><dt>Tarifa</dt><dd>${tarifa}</dd></dl>
@@ -2205,6 +2226,7 @@ function panelUnidad() {
     <div class="col">
       <button class="btn big block" type="button" data-a="checkinRapido" data-v="${u.id}">Check-in rápido</button>
       <div class="row"><button class="btn ghost sm" type="button" data-a="nuevaReserva" data-v="${u.id}">Nueva reserva</button><button class="btn ghost sm" type="button" data-a="iniMant" data-v="${u.id}">Enviar a mantenimiento</button></div>
+      <button class="btn ghost sm block" type="button" data-a="subalquilarUnidad" data-v="${u.id}">${u.propietarioId ? 'Editar subalquiler' : 'Subalquilar esta unidad'}</button>
     </div></div>`;
 }
 
@@ -2667,39 +2689,56 @@ VISTAS.subalquiler = () => {
   const us = S.unidades.filter(u => u.propietarioId);
   const pend = S.liquidaciones.filter(l => l.estado !== 'Pagada');
   return `
-  <div class="notice info"><b>Regla de liquidación:</b> la base es el ingreso de alojamiento de la unidad <i>después</i> de descuentos y <i>antes</i> de gastronomía (los consumos se atribuyen a gastronomía). Se liquida automáticamente al cerrar cada estadía, una sola vez. Los porcentajes deben sumar exactamente 100 %.</div>
+  <div class="notice info"><b>Subalquiler opcional:</b> cualquier parcela o cabaña del camping puede subalquilarse a un propietario (botón <i>Subalquilar</i> en el mapa o acá) y dejar de hacerlo cuando no tenga una estadía en curso. Las que no se subalquilan las administra el club al 100 %.</div>
+  <div class="notice info mt-s"><b>Regla de liquidación:</b> la base es el ingreso de alojamiento de la unidad <i>después</i> de descuentos y <i>antes</i> de gastronomía (los consumos se atribuyen a gastronomía). Se liquida automáticamente al cerrar cada estadía, una sola vez. Los porcentajes deben sumar exactamente 100 %.</div>
   <div class="kpis">
     ${kpi('Unidades de terceros', us.length, `${S.propietarios.length} propietario(s)`)}
     ${kpi('Liquidaciones pendientes', pend.length, money(suma(pend, l => l.importeProp)), pend.length ? 'warn' : '')}
     ${kpi('Total liquidado a propietarios', money(suma(S.liquidaciones, l => l.importeProp)))}
     ${kpi('Comisiones del club', money(suma(S.liquidaciones, l => l.importeClub)), '', 'acc')}
   </div>
-  <div class="card"><h3>Unidades administradas <button class="btn sm" type="button" data-a="nuevaUnidadTercero" ${S.unidades.filter(u => u.clase === 'cabana').length >= APP.maxCabanas ? 'disabled title="Máximo de cabañas del mapa alcanzado"' : ''}>+ Nueva unidad de tercero</button></h3>
+  <div class="card"><h3>Unidades administradas <span class="row"><button class="btn sm" type="button" data-a="subalquilarUnidad" ${S.unidades.some(u => !u.propietarioId) ? '' : 'disabled'}>+ Subalquilar una parcela o cabaña</button> <button class="btn ghost sm" type="button" data-a="nuevaUnidadTercero" ${S.unidades.filter(u => u.clase === 'cabana').length >= APP.maxCabanas ? 'disabled title="Máximo de cabañas del mapa alcanzado"' : ''}>+ Nueva cabaña de tercero</button></span></h3>
     <div class="tw"><table><thead><tr><th>Unidad</th><th>Propietario</th><th>Tipo</th><th class="num">Tarifa / noche</th><th class="num">% propietario</th><th class="num">% club</th><th>Estado actual</th><th>Liquidación</th><th>Historial de estadías</th><th></th></tr></thead><tbody>
     ${us.map(u => { const p = propietario(u.propietarioId); const ests = S.estadias.filter(e => e.unidadId === u.id && e.estado !== 'cancelada'); const liqs = S.liquidaciones.filter(l => l.unidadId === u.id); const lp = liqs.filter(l => l.estado !== 'Pagada').length; const cerradasSinLiq = ests.filter(e => e.estado === 'cerrada' && !liqs.some(l => l.estadiaId === e.id)).length;
-      return `<tr><td><b>${u.id}</b><div class="sub small">${esc(u.nombre)}</div></td><td>${esc(p.nombre)}<div class="sub tiny">Doc. ${esc(p.doc || '—')} (ficticio)</div></td><td>${esc(S.config.tipos[u.tipoFijo].nombre)}</td><td class="num">${money(u.tarifa)}</td><td class="num">${u.pctProp} %</td><td class="num">${u.pctClub} %</td><td>${pillUnidad(estadoUnidad(u))}</td>
+      return `<tr><td><b>${u.id}</b><div class="sub small">${esc(u.nombre)}</div></td><td>${esc(p.nombre)}<div class="sub tiny">Doc. ${esc(p.doc || '—')} (ficticio)</div></td><td>${u.tipoFijo ? esc(S.config.tipos[u.tipoFijo].nombre) : 'Parcela'}</td><td class="num">${u.tarifa ? money(u.tarifa) : '<span class="sub small">según tipo</span>'}</td><td class="num">${u.pctProp} %</td><td class="num">${u.pctClub} %</td><td>${pillUnidad(estadoUnidad(u))}</td>
       <td>${lp ? `<span class="pill warn">${lp} pendiente(s) de pago</span>` : liqs.length ? '<span class="pill ok">Al día</span>' : '<span class="pill">Sin liquidaciones</span>'}${cerradasSinLiq ? ' <span class="pill bad">sin liquidar</span>' : ''}</td>
       <td class="small">${ests.length ? ests.map(e => `<a href="#" data-a="verEstadia" data-v="${e.id}">${e.id}</a> <span class="sub">${ESTADO_EST_TXT[e.estado].split(' ')[0]}</span>`).join('<br>') : '—'}</td>
-      <td><button class="btn ghost xs" type="button" data-a="editarUnidadTercero" data-v="${u.id}">Editar</button></td></tr>`; }).join('') || `<tr><td colspan="10">${vacio('Sin unidades de terceros')}</td></tr>`}
+      <td><button class="btn ghost xs" type="button" data-a="editarUnidadTercero" data-v="${u.id}">Editar</button> <button class="btn ghost xs" type="button" data-a="quitarSubalquiler" data-v="${u.id}">Dejar de subalquilar</button></td></tr>`; }).join('') || `<tr><td colspan="10">${vacio('Sin unidades de terceros')}</td></tr>`}
     </tbody></table></div></div>
   <div class="card mt"><h3>Liquidaciones</h3><div class="tw"><table><thead><tr><th>Liquidación</th><th>Fecha</th><th>Unidad</th><th>Estadía</th><th>Propietario</th><th class="num">Base</th><th class="num">Propietario</th><th class="num">Club</th><th>Estado</th><th></th></tr></thead><tbody>
     ${S.liquidaciones.slice().reverse().map(l => `<tr><td class="mono">${l.id}</td><td>${fFechaHora(l.fecha)}</td><td>${l.unidadId}</td><td><a href="#" data-a="verEstadia" data-v="${l.estadiaId}">${l.estadiaId}</a></td><td>${esc(propietario(l.propietarioId).nombre)}</td><td class="num">${money(l.base)}</td><td class="num">${money(l.importeProp)} <span class="sub tiny">${l.pctProp} %</span></td><td class="num">${money(l.importeClub)} <span class="sub tiny">${l.pctClub} %</span></td><td>${l.estado === 'Pagada' ? `<span class="pill ok">Pagada ${fFecha(l.pago.fecha.slice(0, 10))}</span>` : '<span class="pill warn">Pendiente de pago</span>'}</td>
       <td>${l.estado === 'Pagada' ? '' : `<button class="btn xs" type="button" data-a="pagarLiq" data-v="${l.id}">Registrar pago</button>`}</td></tr>`).join('') || `<tr><td colspan="10">${vacio('Sin liquidaciones', 'Se generan al cerrar estadías en unidades de terceros.')}</td></tr>`}
   </tbody></table></div></div>`;
 };
-function modalUnidadTercero(id) {
-  const u = id ? unidad(id) : { nombre: '', tarifa: 7000000, pctProp: S.config.pctPropietario, pctClub: S.config.pctClub, maxPers: 6, propietarioId: S.propietarios[0] ? S.propietarios[0].id : '__nuevo' };
+function modalSubalquilarUnidad() {
+  const libres = S.unidades.filter(u => !u.propietarioId);
+  if (!libres.length) return toast('Todas las unidades ya están subalquiladas.', 'info');
   abrirModal({
-    titulo: id ? `Editar ${u.id}` : 'Nueva unidad de tercero', ancho: 'narrow',
+    titulo: 'Subalquilar una parcela o cabaña', ancho: 'narrow',
+    cuerpo: `<form id="fSq" novalidate><div class="field"><label for="sqU">Unidad a subalquilar *</label><select id="sqU" name="u">${opciones(libres.map(u => [u.id, `${u.id} · ${u.nombre}${estadoUnidad(u) === 'ocupada' ? ' (ocupada)' : ''}`]), UI.selUnidad && libres.some(u => u.id === UI.selUnidad) ? UI.selUnidad : libres[0].id)}</select></div>
+      <p class="sub small">Elegida la unidad, se piden el propietario y los porcentajes de liquidación.</p></form>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fSq">Continuar</button>`,
+    onBind: d => d.querySelector('#fSq').addEventListener('submit', ev => { ev.preventDefault(); const uid = formData(ev.target).u; cerrarModal(); setTimeout(() => modalUnidadTercero(uid), 0); })
+  });
+}
+function modalUnidadTercero(id) {
+  const ex = id ? unidad(id) : null;
+  const cab = !ex || esCabana(ex);
+  const eraTercero = !!(ex && ex.propietarioId);
+  const u = ex ? { ...ex, pctProp: ex.pctProp ?? S.config.pctPropietario, pctClub: ex.pctClub ?? S.config.pctClub, propietarioId: ex.propietarioId || (S.propietarios[0] ? S.propietarios[0].id : '__nuevo') }
+    : { nombre: '', tarifa: 7000000, pctProp: S.config.pctPropietario, pctClub: S.config.pctClub, maxPers: 6, propietarioId: S.propietarios[0] ? S.propietarios[0].id : '__nuevo' };
+  abrirModal({
+    titulo: !ex ? 'Nueva cabaña de tercero' : eraTercero ? `Editar subalquiler de ${u.id}` : `Subalquilar ${u.id}`, ancho: 'narrow',
     cuerpo: `<form id="fUt" novalidate><div id="errUt"></div>
-      <div class="field"><label>Nombre de la unidad *</label><input name="nombre" maxlength="50" value="${esc(u.nombre)}"></div>
+      ${ex && !cab ? `<div class="notice info">Parcela <b>${esc(u.id)}</b>: se cobra según el tipo de alojamiento elegido en cada estadía; el subalquiler sólo define cómo se reparte lo que ingresa.</div>` : ''}
+      ${cab ? `<div class="field"><label>Nombre de la unidad *</label><input name="nombre" maxlength="50" value="${esc(u.nombre)}"></div>` : ''}
       <div class="field"><label>Propietario *</label><select name="propietarioId">${opciones(S.propietarios.map(p => [p.id, p.nombre]).concat([['__nuevo', '+ Nuevo propietario…']]), u.propietarioId)}</select></div>
       <div data-np class="g2"><div class="field"><label>Nombre del propietario</label><input name="propNombre" maxlength="60"></div><div class="field"><label>Documento (ficticio)</label><input name="propDoc" maxlength="14"></div></div>
-      <div class="g2"><div class="field"><label>Tarifa por noche (ARS) *</label><input name="tarifa" inputmode="decimal" value="${aPesosInput(u.tarifa).replace('.', ',')}"></div><div class="field"><label>Capacidad (personas)</label><input name="maxPers" type="number" min="1" max="12" value="${u.maxPers}"></div></div>
+      ${cab ? `<div class="g2"><div class="field"><label>Tarifa por noche (ARS) *</label><input name="tarifa" inputmode="decimal" value="${aPesosInput(u.tarifa).replace('.', ',')}"></div><div class="field"><label>Capacidad (personas)</label><input name="maxPers" type="number" min="1" max="12" value="${u.maxPers}"></div></div>` : ''}
       <div class="g2"><div class="field"><label>% propietario *</label><input name="pctProp" type="number" min="0" max="100" step="0.01" value="${u.pctProp}"></div><div class="field"><label>% club *</label><input name="pctClub" type="number" min="0" max="100" step="0.01" value="${u.pctClub}"></div></div>
       <div id="pctMsg"></div>
       <p class="sub small">Los cambios de porcentaje aplican a liquidaciones futuras; las ya generadas no se modifican.</p></form>`,
-    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button><button class="btn" type="submit" form="fUt">Guardar</button>`,
+    pie: `<button class="btn ghost" type="button" data-close>Cancelar</button>${eraTercero ? `<button class="btn ghost" type="button" data-a="quitarSubalquiler" data-v="${u.id}">Dejar de subalquilar</button>` : ''}<button class="btn" type="submit" form="fUt">${eraTercero || !ex ? 'Guardar' : 'Subalquilar'}</button>`,
     onBind: d => {
       const f = d.querySelector('#fUt');
       const upd = () => {
@@ -2709,7 +2748,7 @@ function modalUnidadTercero(id) {
         d.querySelector('#pctMsg').innerHTML = v.ok ? '<div class="notice ok">Los porcentajes suman 100 %.</div>' : `<div class="notice bad">${esc(v.motivo)}</div>`;
       };
       f.addEventListener('input', upd); f.addEventListener('change', upd); upd();
-      f.addEventListener('submit', ev => { ev.preventDefault(); const r = ejecutar(() => guardarUnidadTercero(formData(f), id), x => `Unidad ${x.id} guardada.`); if (r) cerrarModal(); });
+      f.addEventListener('submit', ev => { ev.preventDefault(); const r = ejecutar(() => guardarUnidadTercero(formData(f), id), x => eraTercero || !ex ? `Unidad ${x.id} guardada.` : `${x.id} ahora se subalquila.`); if (r) cerrarModal(); });
     }
   });
 }
@@ -3412,7 +3451,7 @@ VISTAS.config = () => {
         <p class="sub small">Restablecer elimina todos los movimientos del usuario y vuelve al estado inicial con fechas relativas a hoy.</p></div></div></div>`;
   } else {
     const t = UI.tests;
-    body = `<div class="card"><h3>Pruebas funcionales (15 del sistema base + 8 de pileta y canchas + 2 de socios) <button class="btn sm" type="button" data-a="runTests">Ejecutar las 25 pruebas</button></h3>
+    body = `<div class="card"><h3>Pruebas funcionales (15 del sistema base + 8 de pileta y canchas + 2 de socios + 1 de subalquiler) <button class="btn sm" type="button" data-a="runTests">Ejecutar las 26 pruebas</button></h3>
       <p class="sub small mb">Cada prueba corre sobre una copia aislada de los datos de demostración: no modifica su información.</p>
       ${t ? `<div class="notice ${t.every(x => x.ok) ? 'ok' : 'bad'}">${t.filter(x => x.ok).length} de ${t.length} pruebas superadas.</div><div class="tw"><table class="tres"><thead><tr><th>#</th><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>${t.map(x => `<tr><td>${x.n}</td><td>${esc(x.nombre)}</td><td>${x.ok ? '<span class="pill ok">✓ OK</span>' : '<span class="pill bad">✕ Falla</span>'}</td><td class="small">${esc(x.detalle)}</td></tr>`).join('')}</tbody></table></div>` : vacio('Aún no se ejecutaron', 'Presione «Ejecutar las 23 pruebas».')}</div>`;
   }
@@ -3511,6 +3550,22 @@ function ejecutarPruebas() {
       const l = S.liquidaciones.find(x => x.estadiaId === e.id);
       esperar(l && l.base === e.calc.total && l.importeProp === Math.round(l.base * 0.7) && l.importeProp + l.importeClub === l.base, 'distribución');
       return `Base ${money(l.base)} → propietario ${money(l.importeProp)} (70 %) + club ${money(l.importeClub)} (30 %).`;
+    })],
+    ['Cualquier parcela puede subalquilarse y dejar de hacerlo', () => enSandbox(() => {
+      esperar(!unidad('P04').propietarioId, 'P04 arranca administrada por el club');
+      transaccion(() => guardarUnidadTercero({ propietarioId: 'PR-01', pctProp: 55, pctClub: 45 }, 'P04'));
+      esperar(unidad('P04').propietarioId === 'PR-01' && unidad('P04').pctProp === 55 && unidad('P04').tarifa === null && !esCabana(unidad('P04')), 'queda subalquilada sin tocar la tarifa por tipo');
+      esperar(lanza(() => guardarUnidadTercero({ propietarioId: 'PR-01', pctProp: 50, pctClub: 40 }, 'P04')), 'porcentajes que no suman 100');
+      const e = transaccion(() => crearEstadia({ unidadId: 'P04', clienteId: 'C-006', ingreso: H, salida: sumarDias(H, 2), personas: 2, vehiculos: 1, tipo: 'carpa' }));
+      esperar(lanza(() => dejarDeSubalquilar('P04')), 'no se puede dejar con estadía en curso');
+      transaccion(() => cerrarEstadia(e.id, { cobro: { importe: resumenEstadia(e).saldo, medio: 'efectivo' } }));
+      const l = S.liquidaciones.find(x => x.estadiaId === e.id);
+      esperar(l && l.propietarioId === 'PR-01' && l.importeProp === Math.round(l.base * 0.55) && l.importeProp + l.importeClub === l.base, 'liquida 55/45');
+      transaccion(() => dejarDeSubalquilar('P04'));
+      esperar(!unidad('P04').propietarioId && S.liquidaciones.some(x => x.id === l.id), 'vuelve al club y conserva la liquidación');
+      const e2 = transaccion(() => crearEstadia({ unidadId: 'P04', clienteId: 'C-006', ingreso: sumarDias(H, 3), salida: sumarDias(H, 4), personas: 1, vehiculos: 0, tipo: 'carpa' }));
+      esperar(!previstaCierreSinLiq(e2), 'sin propietario no genera liquidación');
+      return `P04 se subalquiló 55/45: ${money(l.importeProp)} al propietario y ${money(l.importeClub)} al club; luego volvió al club sin perder la liquidación.`;
     })],
     ['Porcentajes de liquidación deben sumar 100 %', () => enSandbox(() => {
       esperar(!validarPorcentajes(70, 20).ok && validarPorcentajes(70, 30).ok && validarPorcentajes(62.5, 37.5).ok, 'validador');
@@ -3785,6 +3840,14 @@ const ACCIONES = {
   editarProducto: v => modalProducto(v),
   toggleProducto: v => ejecutar(() => toggleProducto(v), p => `${p.nombre} ${p.activo ? 'activado' : 'desactivado'}.`),
   nuevaUnidadTercero: () => modalUnidadTercero(null),
+  subalquilarUnidad: v => v ? modalUnidadTercero(v) : modalSubalquilarUnidad(),
+  quitarSubalquiler: async v => {
+    const u = unidad(v); if (!u || !u.propietarioId) return;
+    const ok = await confirmar({ titulo: 'Dejar de subalquilar', html: `<p><b>${esc(u.id)}</b> volverá a administrarse por el club al 100 %. Las liquidaciones ya generadas de <b>${esc(propietario(u.propietarioId).nombre)}</b> se conservan y se siguen pagando.</p>`, ok: 'Dejar de subalquilar' });
+    if (!ok) return;
+    const r = ejecutar(() => dejarDeSubalquilar(v), x => `${x.u.id} vuelve a administración propia.`);
+    if (r) cerrarModal();
+  },
   editarUnidadTercero: v => modalUnidadTercero(v),
   pagarLiq: v => {
     const l = porId(S.liquidaciones, v); if (!l) return;
